@@ -62,28 +62,30 @@ is executed. For more info see :ref:`wait-time`.
 
     @task
     def hello_world(self):
-        ...
+        self.client.get("/hello")
+        self.client.get("/world")
 
-Methods decorated with ``@task`` are the core of your locust file. For every running user,
-Locust creates a greenlet (micro-thread), that will call those methods.
+Methods decorated with ``@task`` are the core of your locust file. For every running User,
+Locust creates a `greenlet <https://greenlet.readthedocs.io/en/stable/greenlet.html>`_ (a coroutine or "micro-thread"), that will call those methods. 
+Code within a task is executed sequentially (it is just regular Python code),
+so ``/world`` won't be called until the response from ``/hello`` has been received.
 
 .. code-block:: python
 
     @task
     def hello_world(self):
-        self.client.get("/hello")
-        self.client.get("/world")
-
+        ...
+    
     @task(3)
     def view_items(self):
-    ...
+        ...
 
 We've declared two tasks by decorating two methods with ``@task``, one of which has been given a higher weight (3).
 When our ``QuickstartUser`` runs it'll pick one of the declared tasks - in this case either ``hello_world`` or
 ``view_items`` - and execute it. Tasks are picked at random, but you can give them different weighting. The above
 configuration will make Locust three times more likely to pick ``view_items`` than ``hello_world``. When a task has
-finished executing, the User will then sleep during its wait time (in this case between 1 and 5 seconds).
-After its wait time it'll pick a new task and keep repeating that.
+finished executing, the User will then sleep for its specified wait time (in this case between 1 and 5 seconds).
+Then it will pick a new task.
 
 Note that only methods decorated with ``@task`` will be picked, so you can define your own internal helper methods any way you like.
 
@@ -202,8 +204,8 @@ user classes to use from the same locustfile by passing them as command line arg
 
     $ locust -f locust_file.py WebUser MobileUser
 
-If you wish to simulate more users of a certain type you can set a weight attribute on those
-classes. Say for example, web users are three times more likely than mobile users:
+If you wish to simulate more users of a certain type than another you can set a weight attribute on those
+classes. The code below will make Locust spawn 3 times as many WebUsers as MobileUsers:
 
 .. code-block:: python
 
@@ -215,9 +217,9 @@ classes. Say for example, web users are three times more likely than mobile user
         weight = 1
         ...
 
-Also you can set the :py:attr:`fixed_count <locust.User.fixed_count>` attribute.
-In this case the weight attribute will be ignored and the exact count users will be spawned.
-These users are spawned first. In the example below, only one instance of AdminUser
+Also, you can set the :py:attr:`fixed_count <locust.User.fixed_count>` attribute.
+In this case, the weight attribute will be ignored and only that exact number users will be spawned.
+These users are spawned before any regular, weighted ones. In the example below, only one instance of AdminUser
 will be spawned, to make some specific work with more accurate control
 of request count independently of total user count.
 
@@ -238,18 +240,16 @@ of request count independently of total user count.
 host attribute
 --------------
 
-The host attribute is a URL prefix (i.e. "http://google.com") to the host that is to be loaded.
-Usually, this is specified in Locust's web UI or on the command line, using the
-:code:`--host` option, when locust is started.
+The host attribute is a URL prefix (e.g. ``https://google.com``) to the host you want to test. It is automatically added to requests, so you can do ``self.client.get("/")`` for example.
 
-If one declares a host attribute in the user class, it will be used in the case when no :code:`--host`
-is specified on the command line or in the web request.
+You can overwrite this value in Locust's web UI or on the command line, using the
+:code:`--host` option.
 
 tasks attribute
 ---------------
 
 A User class can have tasks declared as methods under it using the :py:func:`@task <locust.task>` decorator, but one can also
-specify tasks using the *tasks* attribute which is described in more details :ref:`below <tasks-attribute>`.
+specify tasks using the *tasks* attribute, which is described in more details :ref:`below <tasks-attribute>`.
 
 environment attribute
 ---------------------
@@ -281,11 +281,8 @@ Tasks
 =====
 
 When a load test is started, an instance of a User class will be created for each simulated user
-and they will start running within their own green thread. When these users run they pick tasks that
+and they will start running within their own greenlet. When these users run they pick tasks that
 they execute, sleep for awhile, and then pick a new task and so on.
-
-The tasks are normal python callables and - if we were load-testing an auction website - they could do
-stuff like "loading the start page", "searching for some product", "making a bid", etc.
 
 @task decorator
 ---------------
@@ -617,18 +614,38 @@ Using :ref:`catch_response <catch-response>` and accessing `request_meta <https:
 HTTP Proxy settings
 -------------------
 To improve performance, we configure requests to not look for HTTP proxy settings in the environment by setting
-requests.Session's trust_env attribute to ``False``. If you don't want this you can manually set
+requests.Session's trust_env attribute to ``False``. If you don't want this, you can manually set
 ``locust_instance.client.trust_env`` to ``True``. For further details, refer to the
 `documentation of requests <https://requests.readthedocs.io/en/master/api/#requests.Session.trust_env>`_.
+
+Connection reuse
+----------------
+
+By default, connections are reused by an HttpUser, even across tasks runs. To avoid connection reuse you can do:
+
+.. code-block:: python
+    
+    self.client.get("/", headers={"Connection": "close"})
+    self.client.get("/new_connection_here")
+
+Or you can close the entire requests.Session object (this also deletes cookies, closes the SSL session etc). This has some CPU overhead 
+(and the response time of the next request will be higher due to SSL renegotiation etc), so dont use this unless you really need it.
+
+.. code-block:: python
+    
+    self.client.get("/")
+    self.client.close()
+    self.client.get("/new_connection_here")
+
 
 Connection pooling
 ------------------
 
 As every :py:class:`HttpUser <locust.HttpUser>` creates new :py:class:`HttpSession <locust.clients.HttpSession>`,
-every user instance has its own connection pools. This is similar to how real users would interact with a web server.
+every user instance has its own connection pool. This is similar to how real users (browsers) would interact with a web server.
 
-However, if you want to share connections among all users, you can use a single pool manager. To do this, set
-:py:attr:`pool_manager <locust.HttpUser.pool_manager>` class attribute to an instance of :py:class:`urllib3.PoolManager`.
+If you instead want to share connections, you can use a single pool manager. To do this, set :py:attr:`pool_manager <locust.HttpUser.pool_manager>` 
+class attribute to an instance of :py:class:`urllib3.PoolManager`.
 
 .. code-block:: python
 
@@ -636,7 +653,7 @@ However, if you want to share connections among all users, you can use a single 
     from urllib3 import PoolManager
 
     class MyUser(HttpUser):
-        # All users will be limited to 10 concurrent connections at most.
+        # All instances of this class will be limited to 10 concurrent connections at most.
         pool_manager = PoolManager(maxsize=10, block=True)
 
 For more configuration options, refer to the
@@ -644,7 +661,7 @@ For more configuration options, refer to the
 
 TaskSets
 ================================
-TaskSets is a way to structure tests of hierarchical web sites/systems. You can :ref:`read more about it here <tasksets>`.
+TaskSets is a way to structure tests of hierarchical websites/systems. You can :ref:`read more about it here <tasksets>`.
 
 Examples
 ========
@@ -660,7 +677,7 @@ in any Python program. The current working directory is automatically added to p
 so any python file/module/packages that resides in the working directory can be imported using the
 python ``import`` statement.
 
-For small tests, keeping all of the test code in a single ``locustfile.py`` should work fine, but for
+For small tests, keeping all the test code in a single ``locustfile.py`` should work fine, but for
 larger test suites, you'll probably want to split the code into multiple files and directories.
 
 How you structure the test source code is of course entirely up to you, but we recommend that you

@@ -1,33 +1,58 @@
-from jinja2 import Environment, FileSystemLoader
 import os
-import pathlib
-import datetime
-from itertools import chain
-from .stats import sort_stats
-from . import stats as stats_module
-from .user.inspectuser import get_ratio
 from html import escape
-from json import dumps
-from .runners import MasterRunner, STATE_STOPPED, STATE_STOPPING
+from itertools import chain
+
+from jinja2 import Environment as JinjaEnvironment
+from jinja2 import FileSystemLoader
+
+from . import stats as stats_module
+from .runners import STATE_STOPPED, STATE_STOPPING, MasterRunner
+from .stats import sort_stats, update_stats_history
+from .user.inspectuser import get_ratio
+from .util.date import format_duration, format_utc_timestamp
+
+PERCENTILES_FOR_HTML_REPORT = [0.50, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.0]
+DEFAULT_BUILD_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui", "dist")
 
 
-def render_template(file, **kwargs):
-    templates_path = os.path.join(pathlib.Path(__file__).parent.absolute(), "templates")
-    env = Environment(loader=FileSystemLoader(templates_path), extensions=["jinja2.ext.do"])
+def process_html_filename(options) -> None:
+    num_users = options.num_users
+    spawn_rate = options.spawn_rate
+    run_time = options.run_time
+
+    option_mapping = {
+        "{u}": num_users,
+        "{r}": spawn_rate,
+        "{t}": run_time,
+    }
+
+    html_filename = options.html_file
+
+    for option_term, option_value in option_mapping.items():
+        html_filename = html_filename.replace(option_term, str(int(option_value)))
+
+    options.html_file = html_filename
+
+
+def render_template_from(file, build_path=DEFAULT_BUILD_PATH, **kwargs):
+    env = JinjaEnvironment(loader=FileSystemLoader(build_path))
     template = env.get_template(file)
     return template.render(**kwargs)
 
 
-def get_html_report(environment, show_download_link=True):
+def get_html_report(
+    environment,
+    show_download_link=True,
+    theme="",
+):
     stats = environment.runner.stats
 
-    start_ts = stats.start_time
-    start_time = datetime.datetime.utcfromtimestamp(start_ts).strftime("%Y-%m-%d %H:%M:%S")
+    start_time = format_utc_timestamp(stats.start_time)
 
-    end_ts = stats.last_request_timestamp
-    if end_ts:
-        end_time = datetime.datetime.utcfromtimestamp(end_ts).strftime("%Y-%m-%d %H:%M:%S")
+    if end_ts := stats.last_request_timestamp:
+        end_time = format_utc_timestamp(end_ts)
     else:
+        end_ts = stats.start_time
         end_time = start_time
 
     host = None
@@ -44,25 +69,9 @@ def get_html_report(environment, show_download_link=True):
         {**exc, "nodes": ", ".join(exc["nodes"])} for exc in environment.runner.exceptions.values()
     ]
 
+    if stats.history and stats.history[-1]["time"] < end_time:
+        update_stats_history(environment.runner, end_time)
     history = stats.history
-
-    static_js = []
-    js_files = ["jquery-1.11.3.min.js", "echarts.common.min.js", "vintage.js", "chart.js", "tasks.js"]
-    for js_file in js_files:
-        path = os.path.join(os.path.dirname(__file__), "static", js_file)
-        static_js.append("// " + js_file)
-        with open(path, encoding="utf8") as f:
-            static_js.append(f.read())
-        static_js.extend(["", ""])
-
-    static_css = []
-    css_files = ["tables.css"]
-    for css_file in css_files:
-        path = os.path.join(os.path.dirname(__file__), "static", "css", css_file)
-        static_css.append("/* " + css_file + " */")
-        with open(path, encoding="utf8") as f:
-            static_css.append(f.read())
-        static_css.extend(["", ""])
 
     is_distributed = isinstance(environment.runner, MasterRunner)
     user_spawned = (
@@ -77,26 +86,33 @@ def get_html_report(environment, show_download_link=True):
         "total": get_ratio(environment.user_classes, user_spawned, True),
     }
 
-    res = render_template(
+    return render_template_from(
         "report.html",
-        int=int,
-        round=round,
-        escape=escape,
-        str=str,
-        requests_statistics=requests_statistics,
-        failures_statistics=failures_statistics,
-        exceptions_statistics=exceptions_statistics,
-        start_time=start_time,
-        end_time=end_time,
-        host=host,
-        history=history,
-        static_js="\n".join(static_js),
-        static_css="\n".join(static_css),
-        show_download_link=show_download_link,
-        locustfile=environment.locustfile,
-        tasks=dumps(task_data),
-        percentile1=stats_module.PERCENTILES_TO_CHART[0],
-        percentile2=stats_module.PERCENTILES_TO_CHART[1],
+        template_args={
+            "is_report": True,
+            "requests_statistics": [stat.to_dict(escape_string_values=True) for stat in requests_statistics],
+            "failures_statistics": [stat.to_dict() for stat in failures_statistics],
+            "exceptions_statistics": [stat for stat in exceptions_statistics],
+            "response_time_statistics": [
+                {
+                    "name": escape(stat.name),
+                    "method": escape(stat.method or ""),
+                    **{
+                        str(percentile): stat.get_response_time_percentile(percentile)
+                        for percentile in PERCENTILES_FOR_HTML_REPORT
+                    },
+                }
+                for stat in requests_statistics
+            ],
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration": format_duration(stats.start_time, end_ts),
+            "host": escape(str(host)),
+            "history": history,
+            "show_download_link": show_download_link,
+            "locustfile": escape(str(environment.locustfile)),
+            "tasks": task_data,
+            "percentiles_to_chart": stats_module.PERCENTILES_TO_CHART,
+        },
+        theme=theme,
     )
-
-    return res

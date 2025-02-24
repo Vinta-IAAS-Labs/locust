@@ -1,19 +1,18 @@
-import unittest
-import os
-from tempfile import NamedTemporaryFile, TemporaryDirectory
-from random import randint
-from unittest import mock
-from io import StringIO
-
 import locust
 from locust.argument_parser import (
-    locustfile_is_directory,
-    parse_options,
     get_parser,
     parse_locustfile_option,
+    parse_locustfile_paths,
+    parse_options,
     ui_extra_args_dict,
-    find_locustfiles,
 )
+
+import os
+import unittest
+from io import StringIO
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+from unittest import mock
+
 from .mock_locustfile import mock_locustfile
 from .testcases import LocustTestCase
 
@@ -37,22 +36,52 @@ class TestParser(unittest.TestCase):
         opts = self.parser.parse_args(args)
         self.assertEqual(opts.skip_log_setup, True)
 
-    def test_parameter_parsing(self):
-        with NamedTemporaryFile(mode="w") as file:
-            os.environ["LOCUST_LOCUSTFILE"] = "locustfile_from_env"
-            file.write("host host_from_config\nweb-host webhost_from_config")
+    def test_parse_options_from_conf_file(self):
+        with NamedTemporaryFile(mode="w", suffix=".conf") as file:
+            config_data = """\
+            locustfile = ./test_locustfile.py
+            web-host = 127.0.0.1
+            web-port = 45787
+            headless
+            tags = [Critical, Normal]
+            """
+
+            file.write(config_data)
             file.flush()
             parser = get_parser(default_config_files=[file.name])
-            options = parser.parse_args(["-H", "host_from_args"])
-            del os.environ["LOCUST_LOCUSTFILE"]
-        self.assertEqual(options.web_host, "webhost_from_config")
-        self.assertEqual(options.locustfile, "locustfile_from_env")
-        self.assertEqual(options.host, "host_from_args")  # overridden
+            options = parser.parse_args(["-H", "https://example.com"])
 
-    def test_web_auth(self):
-        args = ["--web-auth", "hello:bye"]
-        opts = self.parser.parse_args(args)
-        self.assertEqual(opts.web_auth, "hello:bye")
+        self.assertEqual("./test_locustfile.py", options.locustfile)
+        self.assertEqual("127.0.0.1", options.web_host)
+        self.assertEqual(45787, options.web_port)
+        self.assertTrue(options.headless)
+        self.assertEqual(["Critical", "Normal"], options.tags)
+        self.assertEqual("https://example.com", options.host)
+
+    def test_parse_options_from_toml_file(self):
+        with NamedTemporaryFile(mode="w", suffix=".toml") as file:
+            config_data = """\
+            [tool.locust]
+            locustfile = "./test_locustfile.py"
+            web-host = "127.0.0.1"
+            web-port = 45787
+            headless = true
+            tags = ["Critical", "Normal"]
+            [tool.something_else]
+            this = "should be ignored by locust"
+            """
+
+            file.write(config_data)
+            file.flush()
+            parser = get_parser(default_config_files=[file.name])
+            options = parser.parse_args(["-H", "https://example.com"])
+
+        self.assertEqual("./test_locustfile.py", options.locustfile)
+        self.assertEqual("127.0.0.1", options.web_host)
+        self.assertEqual(45787, options.web_port)
+        self.assertTrue(options.headless)
+        self.assertEqual(["Critical", "Normal"], options.tags)
+        self.assertEqual("https://example.com", options.host)
 
 
 class TestArgumentParser(LocustTestCase):
@@ -60,6 +89,7 @@ class TestArgumentParser(LocustTestCase):
         super().setUp()
         self.parent_dir = TemporaryDirectory()
         self.child_dir = TemporaryDirectory(dir=self.parent_dir.name)
+        self.child_dir2 = TemporaryDirectory(dir=self.parent_dir.name)
 
     def tearDown(self):
         super().tearDown()
@@ -86,9 +116,9 @@ class TestArgumentParser(LocustTestCase):
         self.assertEqual("locustfile.py", options.locustfile)
         self.assertEqual(100, options.num_users)
         self.assertEqual(10, options.spawn_rate)
-        self.assertEqual("5m", options.run_time)
+        self.assertEqual(300, options.run_time)
         self.assertTrue(options.reset_stats)
-        self.assertEqual("5", options.stop_timeout)
+        self.assertEqual(5, options.stop_timeout)
         self.assertEqual(["MyUserClass"], options.user_classes)
         # check default arg
         self.assertEqual(8089, options.web_port)
@@ -106,9 +136,9 @@ class TestArgumentParser(LocustTestCase):
         self.assertEqual("locustfile.py", options.locustfile)
         self.assertEqual(100, options.num_users)
         self.assertEqual(10, options.spawn_rate)
-        self.assertEqual("5m", options.run_time)
+        self.assertEqual(300, options.run_time)
         self.assertTrue(options.reset_stats)
-        self.assertEqual("5", options.stop_timeout)
+        self.assertEqual(5, options.stop_timeout)
         self.assertEqual(["MyUserClass"], options.user_classes)
         # check default arg
         self.assertEqual(8089, options.web_port)
@@ -219,17 +249,44 @@ class TestArgumentParser(LocustTestCase):
     def test_parse_locustfile_empty_directory_error(self):
         with mock.patch("sys.stderr", new=StringIO()):
             with self.assertRaises(SystemExit):
-                locustfiles = parse_locustfile_option(
+                parse_locustfile_option(
                     args=[
                         "-f",
                         self.parent_dir.name,
                     ]
                 )
 
+    def test_parse_locustfile_and_directory(self):
+        with mock_locustfile(filename_prefix="mock_locustfile1", dir=self.parent_dir.name) as mock_locustfile1:
+            with mock_locustfile(filename_prefix="mock_locustfile2", dir=self.parent_dir.name) as mock_locustfile2:
+                with mock_locustfile(filename_prefix="mock_locustfile3", dir=self.child_dir.name) as mock_locustfile3:
+                    locustfiles = parse_locustfile_option(
+                        args=[
+                            "-f",
+                            f"{mock_locustfile1.file_path},{self.child_dir.name}",
+                        ]
+                    )
+                    self.assertIn(mock_locustfile1.file_path, locustfiles)
+                    self.assertNotIn(mock_locustfile2.file_path, locustfiles)
+                    self.assertIn(mock_locustfile3.file_path, locustfiles)
+
+    def test_parse_multiple_directories(self):
+        with mock_locustfile(filename_prefix="mock_locustfile1", dir=self.child_dir.name) as mock_locustfile1:
+            with mock_locustfile(filename_prefix="mock_locustfile2", dir=self.child_dir2.name) as mock_locustfile2:
+                locustfiles = parse_locustfile_option(
+                    args=[
+                        "-f",
+                        f"{self.child_dir.name},{self.child_dir2.name}",
+                    ]
+                )
+
+                self.assertIn(mock_locustfile1.file_path, locustfiles)
+                self.assertIn(mock_locustfile2.file_path, locustfiles)
+
     def test_parse_locustfile_invalid_directory_error(self):
         with mock.patch("sys.stderr", new=StringIO()):
             with self.assertRaises(SystemExit):
-                locustfiles = parse_locustfile_option(
+                parse_locustfile_option(
                     args=[
                         "-f",
                         "non_existent_dir",
@@ -315,6 +372,7 @@ class TestArgumentParser(LocustTestCase):
             parser.add_argument("--a1", help="a1 help")
             parser.add_argument("--a2", help="a2 help", include_in_web_ui=False)
             parser.add_argument("--a3", help="a3 help", is_secret=True)
+            parser.add_argument("--a4", help="a3 help", is_required=True)
 
         args = ["-u", "666", "--a1", "v1", "--a2", "v2", "--a3", "v3"]
         options = parse_options(args=args)
@@ -326,7 +384,8 @@ class TestArgumentParser(LocustTestCase):
         self.assertIn("a1", extra_args)
         self.assertNotIn("a2", extra_args)
         self.assertIn("a3", extra_args)
-        self.assertEqual("v1", extra_args["a1"].default_value)
+        self.assertIn("a4", extra_args)
+        self.assertEqual("v1", extra_args["a1"]["default_value"])
 
 
 class TestFindLocustfiles(LocustTestCase):
@@ -346,7 +405,7 @@ class TestFindLocustfiles(LocustTestCase):
         with mock_locustfile(dir=self.parent_dir1.name) as mocked1:
             with mock_locustfile(dir=self.child_dir.name) as mocked2:
                 with mock_locustfile(dir=self.child_dir.name) as mocked3:
-                    locustfiles = find_locustfiles([self.parent_dir1.name], True)
+                    locustfiles = parse_locustfile_paths([self.parent_dir1.name])
 
                     self.assertIn(mocked1.file_path, locustfiles)
                     self.assertIn(mocked2.file_path, locustfiles)
@@ -356,13 +415,13 @@ class TestFindLocustfiles(LocustTestCase):
     def test_find_locustfiles_error_if_directory_doesnt_exist(self):
         with mock.patch("sys.stderr", new=StringIO()):
             with self.assertRaises(SystemExit):
-                find_locustfiles(["some_directory"], True)
+                parse_locustfile_paths(["some_directory"])
 
     def test_find_locustfiles_ignores_invalid_files_in_directory(self):
         with NamedTemporaryFile(suffix=".py", prefix="_", dir=self.parent_dir1.name) as invalid_file1:
             with NamedTemporaryFile(suffix=".txt", prefix="", dir=self.parent_dir1.name) as invalid_file2:
                 with mock_locustfile(filename_prefix="mock_locustfile1", dir=self.parent_dir1.name) as mock_locustfile1:
-                    locustfiles = find_locustfiles([self.parent_dir1.name], True)
+                    locustfiles = parse_locustfile_paths([self.parent_dir1.name])
 
                     self.assertIn(mock_locustfile1.file_path, locustfiles)
                     self.assertNotIn(invalid_file1.name, locustfiles)
@@ -372,71 +431,21 @@ class TestFindLocustfiles(LocustTestCase):
     def test_find_locustfiles_with_multiple_locustfiles(self):
         with mock_locustfile() as mocked1:
             with mock_locustfile() as mocked2:
-                with mock_locustfile() as mocked3:
-                    locustfiles = find_locustfiles([mocked1.file_path, mocked2.file_path], False)
+                locustfiles = parse_locustfile_paths([mocked1.file_path, mocked2.file_path])
 
-                    self.assertIn(mocked1.file_path, locustfiles)
-                    self.assertIn(mocked2.file_path, locustfiles)
+                self.assertIn(mocked1.file_path, locustfiles)
+                self.assertIn(mocked2.file_path, locustfiles)
 
-                    assert 2 == len(locustfiles)
+                assert 2 == len(locustfiles)
 
     def test_find_locustfiles_error_for_invalid_file_extension(self):
         with mock.patch("sys.stderr", new=StringIO()):
             with mock_locustfile() as valid_file:
                 with self.assertRaises(SystemExit):
                     invalid_file = NamedTemporaryFile(suffix=".txt")
-                    find_locustfiles([valid_file.file_path, invalid_file.name], False)
-
-    def test_find_locustfiles_error_if_invalid_directory(self):
-        with mock.patch("sys.stderr", new=StringIO()):
-            with mock_locustfile() as valid_file:
-                with self.assertRaises(SystemExit):
-                    find_locustfiles([valid_file.file_path], True)
+                    parse_locustfile_paths([valid_file.file_path, invalid_file.name])
 
     def test_find_locustfiles_error_if_multiple_values_for_directory(self):
         with mock.patch("sys.stderr", new=StringIO()):
             with self.assertRaises(SystemExit):
-                find_locustfiles([self.parent_dir1.name, self.parent_dir2.name], True)
-
-
-class TestLocustfileIsDirectory(LocustTestCase):
-    def setUp(self):
-        super().setUp()
-        self.random_prefix = "locust/test/foobar_" + str(randint(1000, 9999))
-        self.mock_filename = self.random_prefix + ".py"
-
-        self.mock_locustfile = open(self.mock_filename, "w")
-        self.mock_locustfile.close()
-        self.mock_dir = os.mkdir(self.random_prefix)
-
-    def tearDown(self):
-        super().tearDown()
-        os.remove(self.mock_filename)
-        os.rmdir(self.random_prefix)
-
-    def test_locustfile_is_directory_single_locustfile(self):
-        with mock_locustfile() as mocked:
-            is_dir = locustfile_is_directory([mocked.file_path])
-            assert not is_dir
-
-    def test_locustfile_is_directory_single_locustfile_without_file_extension(self):
-        prefix_name = "foobar"
-        with NamedTemporaryFile(prefix=prefix_name, suffix=".py") as mocked:
-            is_dir = locustfile_is_directory([prefix_name])
-            assert not is_dir
-
-    def test_locustfile_is_directory_multiple_locustfiles(self):
-        with mock_locustfile() as mocked1:
-            with mock_locustfile() as mocked2:
-                is_dir = locustfile_is_directory([mocked1.file_path, mocked2.file_path])
-                assert not is_dir
-
-    def test_locustfile_is_directory_true_if_directory(self):
-        with TemporaryDirectory() as mocked_dir:
-            is_dir = locustfile_is_directory([mocked_dir])
-            assert is_dir
-
-    def test_locustfile_is_directory_false_if_file_and_directory_share_the_same_name(self):
-        """See locustfile_is_directory docstring of an example of this usecase"""
-        is_dir = locustfile_is_directory([self.random_prefix, self.mock_filename])
-        assert not is_dir
+                parse_locustfile_paths([self.parent_dir1.name, self.parent_dir2.name])

@@ -1,29 +1,47 @@
-from collections import defaultdict
+from __future__ import annotations
+
 import contextlib
 import itertools
 import math
 import time
+from collections import defaultdict
 from collections.abc import Iterator
+from heapq import heapify, heapreplace
+from math import log2
 from operator import attrgetter
-from typing import Dict, Generator, List, TYPE_CHECKING, Optional, Tuple, Type, Set
+from typing import TYPE_CHECKING
 
 import gevent
 
-from roundrobin import smooth
-
-from locust import User
-
 if TYPE_CHECKING:
+    from locust import User
     from locust.runners import WorkerNode
 
+    from collections.abc import Generator, Iterable
+    from typing import TypeVar
 
-# To profile line-by-line, uncomment the code below (i.e. `import line_profiler ...`) and
-# place `@profile` on the functions/methods you wish to profile. Then, in the unit test you are
-# running, use `from locust.dispatch import profile; profile.print_stats()` at the end of the unit test.
-# Placing it in a `finally` block is recommended.
-# import line_profiler
-#
-# profile = line_profiler.LineProfiler()
+    T = TypeVar("T")
+
+
+def _kl_generator(users: Iterable[tuple[T, float]]) -> Generator[T | None]:
+    """Generator based on Kullback-Leibler divergence
+
+    For example, given users A, B with weights 5 and 1 respectively,
+    this algorithm will yield AAABAAAAABAA.
+    """
+    heap = [(x * log2(x / (x + 1.0)), x + 1.0, x, name) for name, x in users if x > 0]
+    if not heap:
+        while True:
+            yield None
+
+    heapify(heap)
+    while True:
+        _, x, weight, name = heap[0]
+        # (divergence diff, number of generated elements + initial weight, initial weight, name) = heap[0]
+        yield name
+        kl_diff = weight * log2(x / (x + 1.0))
+        # calculate how much choosing element i for (x + 1)th time decreases divergence
+        heapreplace(heap, (kl_diff, x + 1.0, weight, name))
 
 
 class UsersDispatcher(Iterator):
@@ -49,7 +67,7 @@ class UsersDispatcher(Iterator):
             from 10 to 100.
     """
 
-    def __init__(self, worker_nodes: List["WorkerNode"], user_classes: List[Type[User]]):
+    def __init__(self, worker_nodes: list[WorkerNode], user_classes: list[type[User]]):
         """
         :param worker_nodes: List of worker nodes
         :param user_classes: The user classes
@@ -62,13 +80,13 @@ class UsersDispatcher(Iterator):
         assert len(user_classes) > 0
         assert len(set(self._user_classes)) == len(self._user_classes)
 
-        self._target_user_count: int = None
+        self._target_user_count: int = 0
 
-        self._spawn_rate: float = None
+        self._spawn_rate: float = 0.0
 
-        self._user_count_per_dispatch_iteration: int = None
+        self._user_count_per_dispatch_iteration: int = 0
 
-        self._wait_between_dispatch: float = None
+        self._wait_between_dispatch: float = 0.0
 
         self._initial_users_on_workers = {
             worker_node.id: {user_class.__name__: 0 for user_class in self._user_classes}
@@ -79,16 +97,17 @@ class UsersDispatcher(Iterator):
 
         self._current_user_count = self.get_current_user_count()
 
-        self._dispatcher_generator: Generator[Dict[str, Dict[str, int]], None, None] = None
+        self._dispatcher_generator: Generator[dict[str, dict[str, int]]] = None  # type: ignore
+        # a generator is assigned (in new_dispatch()) to _dispatcher_generator before it's used
 
         self._user_generator = self._user_gen()
 
         self._worker_node_generator = itertools.cycle(self._worker_nodes)
 
         # To keep track of how long it takes for each dispatch iteration to compute
-        self._dispatch_iteration_durations: List[float] = []
+        self._dispatch_iteration_durations: list[float] = []
 
-        self._active_users: List[Tuple[WorkerNode, str]] = []
+        self._active_users: list[tuple[WorkerNode, str]] = []
 
         # TODO: Test that attribute is set when dispatching and unset when done dispatching
         self._dispatch_in_progress = False
@@ -100,18 +119,17 @@ class UsersDispatcher(Iterator):
         self._no_user_to_spawn = False
 
     def get_current_user_count(self) -> int:
-        # need to ignore type due to https://github.com/python/mypy/issues/1507
-        return sum(map(sum, map(dict.values, self._users_on_workers.values())))  # type: ignore
+        return sum(map(sum, map(dict.values, self._users_on_workers.values())))
 
     @property
-    def dispatch_in_progress(self):
+    def dispatch_in_progress(self) -> bool:
         return self._dispatch_in_progress
 
     @property
-    def dispatch_iteration_durations(self) -> List[float]:
+    def dispatch_iteration_durations(self) -> list[float]:
         return self._dispatch_iteration_durations
 
-    def __next__(self) -> Dict[str, Dict[str, int]]:
+    def __next__(self) -> dict[str, dict[str, int]]:
         users_on_workers = next(self._dispatcher_generator)
         # TODO: Is this necessary to copy the users_on_workers if we know
         #       it won't be mutated by external code?
@@ -122,7 +140,7 @@ class UsersDispatcher(Iterator):
         worker_nodes_by_id = sorted(self._worker_nodes, key=lambda w: w.id)
 
         # Give every worker an index indicating how many workers came before it on that host
-        workers_per_host = defaultdict(lambda: 0)
+        workers_per_host = defaultdict(int)
         for worker_node in worker_nodes_by_id:
             host = worker_node.id.split("_")[0]
             worker_node._index_within_host = workers_per_host[host]
@@ -131,7 +149,7 @@ class UsersDispatcher(Iterator):
         # Sort again, first by index within host, to ensure Users get started evenly across hosts
         self._worker_nodes = sorted(self._worker_nodes, key=lambda worker: (worker._index_within_host, worker.id))
 
-    def _dispatcher(self) -> Generator[Dict[str, Dict[str, int]], None, None]:
+    def _dispatcher(self) -> Generator[dict[str, dict[str, int]]]:
         self._dispatch_in_progress = True
 
         if self._rebalance:
@@ -164,7 +182,9 @@ class UsersDispatcher(Iterator):
 
         self._dispatch_in_progress = False
 
-    def new_dispatch(self, target_user_count: int, spawn_rate: float, user_classes: Optional[List] = None) -> None:
+    def new_dispatch(
+        self, target_user_count: int, spawn_rate: float, user_classes: list[type[User]] | None = None
+    ) -> None:
         """
         Initialize a new dispatch cycle.
 
@@ -194,7 +214,7 @@ class UsersDispatcher(Iterator):
 
         self._dispatch_iteration_durations.clear()
 
-    def add_worker(self, worker_node: "WorkerNode") -> None:
+    def add_worker(self, worker_node: WorkerNode) -> None:
         """
         This method is to be called when a new worker connects to the master. When
         a new worker is added, the users dispatcher will flag that a rebalance is required
@@ -207,7 +227,7 @@ class UsersDispatcher(Iterator):
         self._sort_workers()
         self._prepare_rebalance()
 
-    def remove_worker(self, worker_node: "WorkerNode") -> None:
+    def remove_worker(self, worker_node: WorkerNode) -> None:
         """
         This method is similar to the above `add_worker`. When a worker disconnects
         (because of e.g. network failure, worker failure, etc.), this method will ensure that the next
@@ -248,7 +268,7 @@ class UsersDispatcher(Iterator):
         self._rebalance = True
 
     @contextlib.contextmanager
-    def _wait_between_dispatch_iteration_context(self) -> Generator[None, None, None]:
+    def _wait_between_dispatch_iteration_context(self) -> Generator[None]:
         t0_rel = time.perf_counter()
 
         # We don't use `try: ... finally: ...` because we don't want to sleep
@@ -268,7 +288,7 @@ class UsersDispatcher(Iterator):
         sleep_duration = max(0.0, self._wait_between_dispatch - delta)
         gevent.sleep(sleep_duration)
 
-    def _add_users_on_workers(self) -> Dict[str, Dict[str, int]]:
+    def _add_users_on_workers(self) -> dict[str, dict[str, int]]:
         """Add users on the workers until the target number of users is reached for the current dispatch iteration
 
         :return: The users that we want to run on the workers
@@ -290,7 +310,7 @@ class UsersDispatcher(Iterator):
 
         return self._users_on_workers
 
-    def _remove_users_from_workers(self) -> Dict[str, Dict[str, int]]:
+    def _remove_users_from_workers(self) -> dict[str, dict[str, int]]:
         """Remove users from the workers until the target number of users is reached for the current dispatch iteration
 
         :return: The users that we want to run on the workers
@@ -318,9 +338,7 @@ class UsersDispatcher(Iterator):
 
     def _distribute_users(
         self, target_user_count: int
-    ) -> Tuple[
-        Dict[str, Dict[str, int]], Generator[Optional[str], None, None], itertools.cycle, List[Tuple["WorkerNode", str]]
-    ]:
+    ) -> tuple[dict[str, dict[str, int]], Iterator[str | None], itertools.cycle, list[tuple[WorkerNode, str]]]:
         """
         This function might take some time to complete if the `target_user_count` is a big number. A big number
         is typically > 50 000. However, this function is only called if a worker is added or removed while a test
@@ -349,84 +367,31 @@ class UsersDispatcher(Iterator):
 
         return users_on_workers, user_gen, worker_gen, active_users
 
-    def _user_gen(self) -> Generator[Optional[str], None, None]:
-        """
-        This method generates users according to their weights using
-        a smooth weighted round-robin algorithm implemented by https://github.com/linnik/roundrobin.
+    def _user_gen(self) -> Iterator[str | None]:
+        weighted_users_gen = _kl_generator((u.__name__, u.weight) for u in self._user_classes if not u.fixed_count)
 
-        For example, given users A, B with weights 5 and 1 respectively, this algorithm
-        will yield AAABAAAAABAA. The smooth aspect of this algorithm is what makes it possible
-        to keep the distribution during ramp-up and ramp-down. If we were to use a normal
-        weighted round-robin algorithm, we'd get AAAAABAAAAAB which would make the distribution
-        less accurate during ramp-up/down.
-        """
-
-        def infinite_cycle_gen(users: List[Tuple[Type[User], int]]) -> itertools.cycle:
-            if not users:
-                return itertools.cycle([None])
-
-            # Normalize the weights so that the smallest weight will be equal to "target_min_weight".
-            # The value "2" was experimentally determined because it gave a better distribution especially
-            # when dealing with weights which are close to each others, e.g. 1.5, 2, 2.4, etc.
-            target_min_weight = 2
-
-            # 'Value' here means weight or fixed count
-            normalized_values = [
-                (
-                    user.__name__,
-                    round(target_min_weight * value / min(u[1] for u in users)),
-                )
-                for user, value in users
-            ]
-            generation_length_to_get_proper_distribution = sum(
-                normalized_val[1] for normalized_val in normalized_values
-            )
-            gen = smooth(normalized_values)
-
-            # Instead of calling `gen()` for each user, we cycle through a generator of fixed-length
-            # `generation_length_to_get_proper_distribution`. Doing so greatly improves performance because
-            # we only ever need to call `gen()` a relatively small number of times. The length of this generator
-            # is chosen as the sum of the normalized weights. So, for users A, B, C of weights 2, 5, 6, the length is
-            # 2 + 5 + 6 = 13 which would yield the distribution `CBACBCBCBCABC` that gets repeated over and over
-            # until the target user count is reached.
-            return itertools.cycle(gen() for _ in range(generation_length_to_get_proper_distribution))
-
-        fixed_users = {u.__name__: u for u in self._user_classes if u.fixed_count}
-
-        cycle_fixed_gen = infinite_cycle_gen([(u, u.fixed_count) for u in fixed_users.values()])
-        cycle_weighted_gen = infinite_cycle_gen([(u, u.weight) for u in self._user_classes if not u.fixed_count])
-
-        # Spawn users
         while True:
-            if self._try_dispatch_fixed:
+            if self._try_dispatch_fixed:  # Fixed_count users are spawned before weight users.
+                # Some peoples treat this implementation detail as a feature.
                 self._try_dispatch_fixed = False
-                current_fixed_users_count = {u: self._get_user_current_count(u) for u in fixed_users}
-                spawned_classes: Set[str] = set()
-                while len(spawned_classes) != len(fixed_users):
-                    user_name: Optional[str] = next(cycle_fixed_gen)
-                    if not user_name:
-                        break
-
-                    if current_fixed_users_count[user_name] < fixed_users[user_name].fixed_count:
-                        current_fixed_users_count[user_name] += 1
-                        yield user_name
-
-                        # 'self._try_dispatch_fixed' was changed outhere,  we have to recalculate current count
-                        if self._try_dispatch_fixed:
-                            current_fixed_users_count = {u: self._get_user_current_count(u) for u in fixed_users}
-                            spawned_classes.clear()
-                            self._try_dispatch_fixed = False
-                    else:
-                        spawned_classes.add(user_name)
-
-            yield next(cycle_weighted_gen)
+                fixed_users_missing = [
+                    (u.__name__, miss)
+                    for u in self._user_classes
+                    if u.fixed_count and (miss := u.fixed_count - self._get_user_current_count(u.__name__)) > 0
+                ]
+                total_miss = sum(miss for _, miss in fixed_users_missing)
+                fixed_users_gen = _kl_generator(fixed_users_missing)  # type: ignore[arg-type]
+                # https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+                for _ in range(total_miss):
+                    yield next(fixed_users_gen)
+            else:
+                yield next(weighted_users_gen)
 
     @staticmethod
-    def _fast_users_on_workers_copy(users_on_workers: Dict[str, Dict[str, int]]) -> Dict[str, Dict[str, int]]:
+    def _fast_users_on_workers_copy(users_on_workers: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
         """deepcopy is too slow, so we use this custom copy function.
 
         The implementation was profiled and compared to other implementations such as dict-comprehensions
         and the one below is the most efficient.
         """
-        # type is ignored due to: https://github.com/python/mypy/issues/1507
-        return dict(zip(users_on_workers.keys(), map(dict.copy, users_on_workers.values())))  # type: ignore
+        return dict(zip(users_on_workers.keys(), map(dict.copy, users_on_workers.values())))

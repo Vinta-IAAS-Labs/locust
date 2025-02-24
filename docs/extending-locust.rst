@@ -53,6 +53,7 @@ To see a full list of available events see :ref:`events`.
 
 .. _request_context:
 
+
 Request context
 ===============
 
@@ -92,6 +93,9 @@ Context from a value in the response, using :ref:`catch_response <catch-response
     with self.client.get("/", catch_response=True) as resp:
         resp.request_meta["context"]["requestId"] = resp.json()["requestId"]
 
+.. note::
+
+    Request context doesn't change how Locust's regular statistics are calculated. Logging/reporting solutions like `locust.cloud <https://locust.cloud/>`_ use the above mechanic to save the context to a database.
 
 Adding Web Routes
 ==================
@@ -108,9 +112,7 @@ to the Flask app instance and use that to set up a new route::
         def my_added_page():
             return "Another page"
 
-You should now be able to start locust and browse to http://127.0.0.1:8089/added_page
-
-
+You should now be able to start locust and browse to http://127.0.0.1:8089/added_page. Note that it doesn't get automatically added as a new tab - you'll need to enter the URL directly.
 
 Extending Web UI
 ================
@@ -118,14 +120,53 @@ Extending Web UI
 As an alternative to adding simple web routes, you can use `Flask Blueprints
 <https://flask.palletsprojects.com/en/1.1.x/blueprints/>`_ and `templates
 <https://flask.palletsprojects.com/en/1.1.x/tutorial/templates/>`_ to not only add routes but also extend
-the web UI to allow you to show custom data along side the built-in Locust stats. This is more advanced
-as it involves also writing and including HTML and Javascript files to be served by routes but can
+the web UI to allow you to show custom data along side the built-in Locust stats. This is more advanced but can
 greatly enhance the utility and customizability of the web UI.
 
-A working example of extending the web UI, complete with HTML and Javascript example files, can be found
+Working examples of extending the web UI can be found
 in the `examples directory <https://github.com/locustio/locust/tree/master/examples>`_ of the Locust
 source code.
 
+*  ``extend_modern_web_ui.py``: Display a table with content-length for each call.
+
+* ``web_ui_cache_stats.py``: Display Varnish Hit/Miss stats for each call. This could easily be extended to other CDN or cache proxies and gather other cache statistics such as cache age, control, ...
+
+ .. image:: images/extend_modern_web_ui_cache_stats.png
+
+
+Adding Authentication to the Web UI
+===================================
+
+Locust uses `Flask-Login <https://pypi.org/project/Flask-Login/>`_ to handle authentication when the ``--web-login`` flag is present.
+The ``login_manager`` is exposed on ``environment.web_ui.app``, allowing the flexibility for you to implement any kind of auth that
+you would like!
+
+To use username / password authentication, simply provide a ``username_password_callback`` to the ``environment.web_ui.auth_args``.
+You are responsible for defining the route for the callback and implementing the authentication.
+
+Authentication providers can additionally be configured to allow authentication from 3rd parties such as GitHub or an SSO provider.
+Simply provide a list of desired ``auth_providers``. You may specify the ``label`` and ``icon`` for display on the button.
+The ``callback_url`` will be the url that the button directs to. You will be responsible for defining the callback route as
+well as the authentication with the 3rd party.
+
+Whether you are using username / password authentication, an auth provider, or both, a ``user_loader`` needs to be proivded
+to the ``login_manager``. The ``user_loader`` should return ``None`` to deny authentication or return a User object when
+authentication to the app should be granted.
+
+To display errors on the login page, such as an incorrect username / password combination, you may store the ``auth_error``
+on the session object: ``session["auth_error"] = "Incorrect username or password"``. If you have non-erroneous information
+you would like to display to the user, you can opt instead to set ``auth_info`` on the session object:
+``session["auth_info"] = "Successfully created new user!"``
+
+A full example can be seen `in the auth example <https://github.com/locustio/locust/tree/master/examples/web_ui_auth/basic.py>`_.
+
+In certain situations you may wish to further extend the fields present in the auth form. To achieve this, pass a ``custom_form`` dict
+to the ``environment.web_ui.auth_args``. In this case, the fields will be represented by a list of ``inputs``, the callback url is
+configured by the ``custom_form.callback_url``, and the submit button may optionally be configured using the ``custom_form.submit_button_text``.
+The fields in the auth form may be a text, select, checkbox, or secret password field. You may additionally override the HTML input type for
+specific field validation (e.g. type=email).
+
+For a full example see `configuring the custom_form in the auth example <https://github.com/locustio/locust/tree/master/examples/web_ui_auth/custom_form.py>`_.
 
 
 Run a background greenlet
@@ -158,6 +199,7 @@ For example, you can monitor the fail ratio of your test and stop the run if it 
             gevent.spawn(checker, environment)
 
 .. _parametrizing-locustfiles:
+
 
 Parametrizing locustfiles
 =========================
@@ -201,10 +243,12 @@ You can add your own command line arguments to Locust, using the :py:attr:`init_
 
 When running Locust :ref:`distributed <running-distributed>`, custom arguments are automatically forwarded to workers when the run is started (but not before then, so you cannot rely on forwarded arguments *before* the test has actually started).
 
+
 Test data management
 ====================
 
 There are a number of ways to get test data into your tests (after all, your test is just a Python program and it can do whatever Python can). Locust's events give you fine-grained control over *when* to fetch/release test data. You can find a `detailed example here <https://github.com/locustio/locust/tree/master/examples/test_data_management.py>`_.
+
 
 More examples
 =============

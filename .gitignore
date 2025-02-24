@@ -19,10 +19,15 @@ dist/**
 .vagrant
 build/
 .coverage
-.tox/
 docs/env-options.rst
 .editorconfig
 __pycache__
 .pytest_cache
 .sass-cache/
 .env
+yarn-error.log
+.venv
+.DS_Store
+.python-version
+locust/webui/dist/**
+.coverage*

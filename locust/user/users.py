@@ -1,17 +1,8 @@
 from __future__ import annotations
-from typing import Callable, Dict, List, Optional
-
-from gevent import GreenletExit, greenlet
-from gevent.pool import Group
-from typing_extensions import final
-from urllib3 import PoolManager
 
 from locust.clients import HttpSession
 from locust.exception import LocustError, StopUser
-from locust.user.wait_time import constant
-from locust.util import deprecation
-
-from .task import (
+from locust.user.task import (
     LOCUST_STATE_RUNNING,
     LOCUST_STATE_STOPPING,
     LOCUST_STATE_WAITING,
@@ -19,6 +10,19 @@ from .task import (
     TaskSet,
     get_tasks_from_base_classes,
 )
+from locust.user.wait_time import constant
+from locust.util import deprecation
+
+import logging
+import time
+import traceback
+from typing import Callable, final
+
+from gevent import GreenletExit, greenlet
+from gevent.pool import Group
+from urllib3 import PoolManager
+
+logger = logging.getLogger(__name__)
 
 
 class UserMeta(type):
@@ -54,7 +58,7 @@ class User(metaclass=UserMeta):
     :py:class:`HttpUser <locust.HttpUser>` class.
     """
 
-    host: Optional[str] = None
+    host: str | None = None
     """Base hostname to swarm. i.e: http://127.0.0.1:1234"""
 
     min_wait = None
@@ -84,7 +88,7 @@ class User(metaclass=UserMeta):
     Method that returns the time between the execution of locust tasks in milliseconds
     """
 
-    tasks: List[TaskSet | Callable] = []
+    tasks: list[TaskSet | Callable] = []
     """
     Collection of python callables and/or TaskSet classes that the Locust user(s) will run.
 
@@ -99,29 +103,30 @@ class User(metaclass=UserMeta):
             tasks = {ThreadPage:15, write_post:1}
     """
 
-    weight = 1
+    weight: float = 1
     """Probability of user class being chosen. The higher the weight, the greater the chance of it being chosen."""
 
-    fixed_count = 0
+    fixed_count: int = 0
     """
     If the value > 0, the weight property will be ignored and the 'fixed_count'-instances will be spawned.
     These Users are spawned first. If the total target count (specified by the --users arg) is not enough
     to spawn all instances of each User class with the defined property, the final count of each User is undefined.
     """
 
-    abstract = True
+    abstract: bool = True
     """If abstract is True, the class is meant to be subclassed, and locust will not spawn users of this class during a test."""
 
-    def __init__(self, environment):
+    def __init__(self, environment) -> None:
         super().__init__()
         self.environment = environment
         """A reference to the :py:class:`Environment <locust.env.Environment>` in which this user is running"""
-        self._state = None
-        self._greenlet: greenlet.Greenlet = None
+        self._state: str | None = None
+        self._greenlet: greenlet.Greenlet | None = None
         self._group: Group
-        self._taskset_instance: TaskSet = None
+        self._taskset_instance: TaskSet | None = None
+        self._cp_last_run = time.time()  # used by constant_pacing wait_time
 
-    def on_start(self):
+    def on_start(self) -> None:
         """
         Called when a User starts running.
         """
@@ -139,7 +144,12 @@ class User(metaclass=UserMeta):
         self._taskset_instance = DefaultTaskSet(self)
         try:
             # run the TaskSet on_start method, if it has one
-            self.on_start()
+            try:
+                self.on_start()
+            except Exception as e:
+                # unhandled exceptions inside tasks are logged in TaskSet.run, but since we're not yet there...
+                logger.error("%s\n%s", e, traceback.format_exc())
+                raise
 
             self._taskset_instance.run()
         except (GreenletExit, StopUser):
@@ -179,7 +189,7 @@ class User(metaclass=UserMeta):
         self._group = group
         return self._greenlet
 
-    def stop(self, force=False):
+    def stop(self, force: bool = False):
         """
         Stop the user greenlet.
 
@@ -205,12 +215,21 @@ class User(metaclass=UserMeta):
     def greenlet(self):
         return self._greenlet
 
-    def context(self) -> Dict:
+    def context(self) -> dict:
         """
         Adds the returned value (a dict) to the context for :ref:`request event <request_context>`.
         Override this in your User class to customize the context.
         """
         return {}
+
+    @classmethod
+    def json(cls):
+        return {
+            "host": cls.host,
+            "weight": cls.weight,
+            "fixed_count": cls.fixed_count,
+            "tasks": [task.__name__ for task in cls.tasks],
+        }
 
     @classmethod
     def fullname(cls) -> str:
@@ -230,10 +249,10 @@ class HttpUser(User):
     for keeping a user session between requests.
     """
 
-    abstract = True
+    abstract: bool = True
     """If abstract is True, the class is meant to be subclassed, and users will not choose this locust during a test"""
 
-    pool_manager: Optional[PoolManager] = None
+    pool_manager: PoolManager | None = None
     """Connection pool manager to use. If not given, a new manager is created per single user."""
 
     def __init__(self, *args, **kwargs):

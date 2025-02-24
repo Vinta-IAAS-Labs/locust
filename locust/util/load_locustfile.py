@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import importlib
+import importlib.util
 import inspect
 import os
 import sys
-from typing import Dict, Optional, Tuple
+
 from ..shape import LoadTestShape
 from ..user import User
 
@@ -21,7 +24,7 @@ def is_shape_class(item):
     return bool(inspect.isclass(item) and issubclass(item, LoadTestShape) and not getattr(item, "abstract", True))
 
 
-def load_locustfile(path) -> Tuple[Optional[str], Dict[str, User], Optional[LoadTestShape]]:
+def load_locustfile(path) -> tuple[str | None, dict[str, User], list[LoadTestShape]]:
     """
     Import given locustfile path and return (docstring, callables).
 
@@ -51,9 +54,21 @@ def load_locustfile(path) -> Tuple[Optional[str], Dict[str, User], Optional[Load
             # Add to front, then remove from original position
             sys.path.insert(0, directory)
             del sys.path[i + 1]
+
     # Perform the import
-    source = importlib.machinery.SourceFileLoader(os.path.splitext(locustfile)[0], path)
-    imported = source.load_module()
+    module_name = os.path.splitext(locustfile)[0]
+    if module_name == "locust":
+        module_name = "locustfile"  # Avoid conflict with locust package
+    loader = importlib.machinery.SourceFileLoader(module_name, path)
+    spec = importlib.util.spec_from_file_location(module_name, path, loader=loader)
+    if spec is None:
+        sys.stderr.write(f"Unable to get module spec for {module_name} in {path}")
+        sys.exit(1)
+
+    imported = importlib.util.module_from_spec(spec)
+    sys.modules[imported.__name__] = imported
+    loader.exec_module(imported)
+
     # Remove directory from path if we added it ourselves (just to be neat)
     if added_to_path:
         del sys.path[0]
@@ -65,10 +80,6 @@ def load_locustfile(path) -> Tuple[Optional[str], Dict[str, User], Optional[Load
     user_classes = {name: value for name, value in vars(imported).items() if is_user_class(value)}
 
     # Find shape class, if any, return it
-    shape_classes = [value for name, value in vars(imported).items() if is_shape_class(value)]
-    if shape_classes:
-        shape_class = shape_classes[0]()
-    else:
-        shape_class = None
+    shape_classes = [value() for value in vars(imported).values() if is_shape_class(value)]
 
-    return imported.__doc__, user_classes, shape_class
+    return imported.__doc__, user_classes, shape_classes

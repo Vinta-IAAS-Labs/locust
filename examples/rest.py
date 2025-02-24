@@ -1,8 +1,9 @@
-from contextlib import contextmanager
-from locust import task, run_single_user, FastHttpUser
+from locust import FastHttpUser, run_single_user, task
 from locust.contrib.fasthttp import RestResponseContextManager
 from locust.user.wait_time import constant
-from typing import Generator
+
+from collections.abc import Generator
+from contextlib import contextmanager
 
 
 class MyUser(FastHttpUser):
@@ -39,19 +40,17 @@ class MyUser(FastHttpUser):
             # use a trailing comma to append the response text to the custom message
             assert resp.js["data"]["foo"] == 2, "my custom error message with response text,"
 
-        # this only works in python 3.8 and up, so it is commented out:
-        # if sys.version_info >= (3, 8):
-        #     with self.rest("", "/post", json={"foo": 1}) as resp:
-        #         # assign and assert in one line
-        #         assert (foo := resp.js["foo"])
-        #         print(f"the number {foo} is awesome")
+        with self.rest("", "/post", json={"foo": 1}) as resp:
+            # assign and assert in one line
+            assert (foo := resp.js["foo"])
+            print(f"the number {foo} is awesome")
 
         # rest() catches most exceptions, so any programming mistakes you make automatically marks the request as a failure
         # and stores the callstack in the failure message
         with self.rest("POST", "/post", json={"foo": 1}) as resp:
             1 / 0  # pylint: disable=pointless-statement
 
-        # response isnt even json, but RestUser will already have been marked it as a failure, so we dont have to do it again
+        # response isn't even json, but RestUser will already have been marked it as a failure, so we dont have to do it again
         with self.rest("GET", "/") as resp:
             pass
 
@@ -78,7 +77,7 @@ class RestUserThatLooksAtErrors(FastHttpUser):
     abstract = True
 
     @contextmanager
-    def rest(self, method, url, **kwargs) -> Generator[RestResponseContextManager, None, None]:
+    def rest(self, method, url, **kwargs) -> Generator[RestResponseContextManager]:
         extra_headers = {"my_header": "my_value"}
         with super().rest(method, url, headers=extra_headers, **kwargs) as resp:
             if resp.js and "error" in resp.js and resp.js["error"] is not None:

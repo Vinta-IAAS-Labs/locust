@@ -1,6 +1,7 @@
-from locust import User, task, constant
-from locust.user.sequential_taskset import SequentialTaskSet
+from locust import User, task
 from locust.exception import RescheduleTask
+from locust.user.sequential_taskset import SequentialTaskSet
+
 from .testcases import LocustTestCase
 
 
@@ -32,6 +33,26 @@ class TestTaskSet(LocustTestCase):
         l = MyTaskSequence(self.locust)
         self.assertRaises(RescheduleTask, lambda: l.run())
         self.assertEqual([1, 2, 3], log)
+
+    def test_task_sequence_with_dictionary(self):
+        log = []
+
+        def t1(self):
+            log.append(1)
+
+        def t2(self):
+            log.append(2)
+
+        def t3(self):
+            log.append(3)
+            self.interrupt(reschedule=False)
+
+        class MyTaskSequence(SequentialTaskSet):
+            tasks = {t1: 3, t2: 2, t3: 1}
+
+        l = MyTaskSequence(self.locust)
+        self.assertRaises(RescheduleTask, lambda: l.run())
+        self.assertEqual([1, 1, 1, 2, 2, 3], log)
 
     def test_task_sequence_with_methods(self):
         log = []

@@ -15,11 +15,37 @@ HttpUser class
 .. autoclass:: locust.HttpUser
     :members: wait_time, tasks, client, abstract
 
+HttpSession class
+=================
+
+.. autoclass:: locust.clients.HttpSession
+    :members: __init__, request, get, post, delete, put, head, options, patch
+
 FastHttpUser class
 ==================
 
 .. autoclass:: locust.contrib.fasthttp.FastHttpUser
     :members: wait_time, tasks, client, abstract, rest
+    :noindex:
+
+FastHttpSession class
+=====================
+
+.. autoclass:: locust.contrib.fasthttp.FastHttpSession
+    :members: __init__, request, get, post, delete, put, head, options, patch, iter_lines
+
+PostgresUser class
+==================
+
+.. autoclass:: locust.contrib.postgres.PostgresUser
+    :members: wait_time, tasks, client, abstract
+    :noindex:
+
+MongoDBUser class
+=================
+
+.. autoclass:: locust.contrib.mongodb.MongoDBUser
+    :members: wait_time, tasks, client, abstract
     :noindex:
 
 TaskSet class
@@ -52,12 +78,6 @@ Built in wait_time functions
 
 .. automodule:: locust.wait_time
     :members: between, constant, constant_pacing, constant_throughput
-
-HttpSession class
-=================
-
-.. autoclass:: locust.clients.HttpSession
-    :members: __init__, request, get, post, delete, put, head, options, patch
 
 Response class
 ==============
@@ -114,18 +134,18 @@ of locust scripts (since the Environment instance hasn't been created when the l
     :members:
 
 
+.. note::
+
+    It's highly recommended that you add a wildcard keyword argument in your event listeners
+    to prevent your code from breaking if new arguments are added in a future version.
+
 EventHook class
 ---------------
 
 The event hooks are instances of the **locust.events.EventHook** class:
 
 .. autoclass:: locust.event.EventHook
-
-.. note::
-
-    It's highly recommended that you add a wildcard keyword argument in your event listeners
-    to prevent your code from breaking if new arguments are added in a future version.
-
+    :members:
 
 Runner classes
 =====================

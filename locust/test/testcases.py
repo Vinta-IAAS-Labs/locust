@@ -1,3 +1,10 @@
+import locust
+from locust import log
+from locust.env import Environment
+from locust.event import Events
+from locust.test.mock_logging import MockedLoggingHandler
+from locust.test.util import clear_all_functools_lru_cache
+
 import base64
 import logging
 import random
@@ -9,13 +16,6 @@ from io import BytesIO
 import gevent
 import gevent.pywsgi
 from flask import Flask, Response, make_response, redirect, request, send_file, stream_with_context
-
-import locust
-from locust import log
-from locust.event import Events
-from locust.env import Environment
-from locust.test.mock_logging import MockedLoggingHandler
-from locust.test.util import clear_all_functools_lru_cache
 
 app = Flask(__name__)
 app.jinja_env.add_extension("jinja2.ext.do")
@@ -34,8 +34,7 @@ def fast():
 
 @app.route("/slow")
 def slow():
-    delay = request.args.get("delay")
-    if delay:
+    if delay := request.args.get("delay"):
         gevent.sleep(float(delay))
     else:
         gevent.sleep(random.choice([0.5, 1, 1.5]))
@@ -85,8 +84,7 @@ def status_204():
 
 @app.route("/redirect", methods=["GET", "POST"])
 def do_redirect():
-    delay = request.args.get("delay")
-    if delay:
+    if delay := request.args.get("delay"):
         gevent.sleep(float(delay))
     url = request.args.get("url", "/ultra_fast")
     return redirect(url)
@@ -147,6 +145,27 @@ def get_cookie():
 @app.route("/rest", methods=["POST"])
 def rest():
     return request.json
+
+
+@app.route("/content_type_missing_charset")
+def content_type_missing_charset():
+    resp = make_response("stuff")
+    resp.headers["Content-Type"] = "Content-Type: application/json;"
+    return resp
+
+
+@app.route("/content_type_regular")
+def content_type_regular():
+    resp = make_response("stuff")
+    resp.headers["Content-Type"] = "Content-Type: application/json; charset=utf-8;"
+    return resp
+
+
+@app.route("/content_type_with_extra_stuff")
+def content_type_with_extra_stuff():
+    resp = make_response("stuff")
+    resp.headers["Content-Type"] = "Content-Type: application/json; charset=utf-8; api-version=3.0"
+    return resp
 
 
 class LocustTestCase(unittest.TestCase):

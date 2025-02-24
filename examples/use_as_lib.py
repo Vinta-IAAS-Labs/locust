@@ -1,10 +1,12 @@
-import gevent
-from locust import HttpUser, task, events
+#!/usr/bin/env python3
+from locust import HttpUser, events, task
 from locust.env import Environment
-from locust.stats import stats_printer, stats_history
 from locust.log import setup_logging
+from locust.stats import stats_history, stats_printer
 
-setup_logging("INFO", None)
+import gevent
+
+setup_logging("INFO")
 
 
 class MyUser(HttpUser):
@@ -34,8 +36,8 @@ gevent.spawn(stats_history, env.runner)
 # start the test
 runner.start(1, spawn_rate=10)
 
-# in 60 seconds stop the runner
-gevent.spawn_later(60, lambda: runner.quit())
+# in 30 seconds stop the runner
+gevent.spawn_later(30, runner.quit)
 
 # wait for the greenlets
 runner.greenlet.join()

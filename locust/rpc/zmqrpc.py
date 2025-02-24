@@ -1,18 +1,25 @@
-import zmq.green as zmq
-from .protocol import Message
+from locust.exception import RPCError, RPCReceiveError, RPCSendError
 from locust.util.exception_handler import retry
-from locust.exception import RPCError, RPCSendError, RPCReceiveError
-import zmq.error as zmqerr
+
+import socket as csocket
+from socket import gaierror, has_dualstack_ipv6
+
 import msgpack.exceptions as msgerr
+import zmq.error as zmqerr
+import zmq.green as zmq
+
+from .protocol import Message
 
 
 class BaseSocket:
-    def __init__(self, sock_type):
+    def __init__(self, sock_type, ipv4_only):
         context = zmq.Context()
         self.socket = context.socket(sock_type)
 
         self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 30)
+        if has_dualstack_ipv6() and not ipv4_only:
+            self.socket.setsockopt(zmq.IPV6, 1)
 
     @retry()
     def send(self, msg):
@@ -55,10 +62,21 @@ class BaseSocket:
     def close(self, linger=None):
         self.socket.close(linger=linger)
 
+    def ipv4_only(self, host, port) -> bool:
+        try:
+            if host == "*":
+                return False
+            if str(csocket.getaddrinfo(host, port, proto=csocket.IPPROTO_TCP)).find("Family.AF_INET6") == -1:
+                return True
+        except gaierror as e:
+            print(f"Error resolving address: {e}")
+            return False
+        return False
+
 
 class Server(BaseSocket):
     def __init__(self, host, port):
-        BaseSocket.__init__(self, zmq.ROUTER)
+        BaseSocket.__init__(self, zmq.ROUTER, self.ipv4_only(host, port))
         if port == 0:
             self.port = self.socket.bind_to_random_port(f"tcp://{host}")
         else:
@@ -71,6 +89,6 @@ class Server(BaseSocket):
 
 class Client(BaseSocket):
     def __init__(self, host, port, identity):
-        BaseSocket.__init__(self, zmq.DEALER)
+        BaseSocket.__init__(self, zmq.DEALER, self.ipv4_only(host, port))
         self.socket.setsockopt(zmq.IDENTITY, identity.encode())
         self.socket.connect("tcp://%s:%i" % (host, port))

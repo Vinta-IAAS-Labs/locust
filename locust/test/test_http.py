@@ -1,10 +1,11 @@
-import time
-
-from locust.user.users import HttpUser
-from requests.exceptions import InvalidSchema, InvalidURL, MissingSchema, RequestException
-
 from locust.clients import HttpSession
 from locust.exception import LocustError, ResponseError
+from locust.user.users import HttpUser
+
+import time
+
+from requests.exceptions import InvalidSchema, InvalidURL, MissingSchema, RequestException
+
 from .testcases import WebserverTestCase
 
 
@@ -64,7 +65,7 @@ class TestHttpSession(WebserverTestCase):
     def test_slow_redirect(self):
         s = self.get_client()
         url = "/redirect?url=/redirect&delay=0.5"
-        r = s.get(url)
+        s.get(url)
         stats = self.runner.stats.get(url, method="GET")
         self.assertEqual(1, stats.num_requests)
         self.assertGreater(stats.avg_response_time, 500)
@@ -216,7 +217,7 @@ class TestHttpSession(WebserverTestCase):
             with s.get("/fail", catch_response=True) as r:
                 r.success()
                 raise OtherException("wtf")
-        except OtherException as e:
+        except OtherException:
             pass
         else:
             self.fail("OtherException should have been raised")
@@ -227,9 +228,9 @@ class TestHttpSession(WebserverTestCase):
     def test_catch_response_response_error(self):
         s = self.get_client()
         try:
-            with s.get("/fail", catch_response=True) as r:
+            with s.get("/fail", catch_response=True):
                 raise ResponseError("response error")
-        except ResponseError as e:
+        except ResponseError:
             self.fail("ResponseError should not have been raised")
 
         self.assertEqual(1, self.environment.stats.total.num_requests)
@@ -237,14 +238,14 @@ class TestHttpSession(WebserverTestCase):
 
     def test_catch_response_default_success(self):
         s = self.get_client()
-        with s.get("/ultra_fast", catch_response=True) as r:
+        with s.get("/ultra_fast", catch_response=True):
             pass
         self.assertEqual(1, self.environment.stats.get("/ultra_fast", "GET").num_requests)
         self.assertEqual(0, self.environment.stats.get("/ultra_fast", "GET").num_failures)
 
     def test_catch_response_default_fail(self):
         s = self.get_client()
-        with s.get("/fail", catch_response=True) as r:
+        with s.get("/fail", catch_response=True):
             pass
         self.assertEqual(1, self.environment.stats.total.num_requests)
         self.assertEqual(1, self.environment.stats.total.num_failures)
@@ -259,7 +260,7 @@ class TestHttpSession(WebserverTestCase):
 
         self.environment.events.request.add_listener(on_request)
 
-        with s.get("/wrong_url/01", name="replaced_url_name") as r:
+        with s.get("/wrong_url/01", name="replaced_url_name"):
             pass
 
         self.assertIn("for url: replaced_url_name", str(kwargs["exception"]))
@@ -277,6 +278,29 @@ class TestHttpSession(WebserverTestCase):
         # incorrect usage, missing catch_response=True
         with s.get("/fail") as resp:
             self.assertRaises(LocustError, resp.success)
+
+    def test_event_measure(self):
+        kwargs = {}
+
+        def on_request(**kw):
+            kwargs.update(**kw)
+
+        self.environment.events.request.add_listener(on_request)
+
+        with self.environment.events.request.measure("GET", "/test") as request_meta:
+            time.sleep(0.001)
+
+        self.assertTrue(1 <= kwargs["response_time"] <= 1.5, kwargs["response_time"])
+        self.assertEqual(kwargs["name"], "/test")
+        self.assertIsNone(kwargs["exception"])
+
+        with self.environment.events.request.measure("GET", "/test") as request_meta:
+            request_meta["foo"] = "bar"
+            raise Exception("nooo")
+
+        self.assertEqual(kwargs["name"], "/test")
+        self.assertEqual(kwargs["foo"], "bar")
+        self.assertEqual(str(kwargs["exception"]), "nooo")
 
     def test_user_context(self):
         class TestUser(HttpUser):

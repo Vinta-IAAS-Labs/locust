@@ -1,33 +1,31 @@
-import csv
-import time
-import unittest
-import re
-import os
-import json
-
-import gevent
-from unittest import mock
 import locust
-from locust import HttpUser, TaskSet, task, User, constant, __version__
+from locust import HttpUser, TaskSet, User, __version__, constant, task
 from locust.env import Environment
 from locust.rpc.protocol import Message
 from locust.stats import (
-    CachedResponseTimes,
-    RequestStats,
-    StatsEntry,
-    diff_response_time_dicts,
     PERCENTILES_TO_REPORT,
     STATS_NAME_WIDTH,
     STATS_TYPE_WIDTH,
+    CachedResponseTimes,
+    RequestStats,
+    StatsCSVFileWriter,
+    StatsEntry,
+    diff_response_time_dicts,
+    stats_history,
 )
-from locust.stats import StatsCSVFileWriter
-from locust.stats import stats_history
-from locust.test.testcases import LocustTestCase
+from locust.test.test_runners import mocked_rpc
+from locust.test.testcases import LocustTestCase, WebserverTestCase
 from locust.user.inspectuser import _get_task_ratio
 
-from locust.test.testcases import WebserverTestCase
-from locust.test.test_runners import mocked_rpc
+import csv
+import json
+import os
+import re
+import time
+import unittest
+from unittest import mock
 
+import gevent
 
 _TEST_CSV_STATS_INTERVAL_SEC = 0.2
 _TEST_CSV_STATS_INTERVAL_WAIT_SEC = _TEST_CSV_STATS_INTERVAL_SEC + 0.1
@@ -369,7 +367,7 @@ class TestStatsPrinting(LocustTestCase):
         headlines = info[1].replace("# ", "#").split()
         # check number of columns in headlines vs table ascii separator
         self.assertEqual(len(headlines), len(info[2].split("|")))
-        # table ascii seprators
+        # table ascii separators
         self.assertEqual(info[2], info[-2])
 
 
@@ -587,11 +585,12 @@ class TestCsvStats(LocustTestCase):
     def test_stats_history(self):
         env1 = Environment(events=locust.events, catch_exceptions=False)
         runner1 = env1.create_master_runner("127.0.0.1", 5558)
+        runner1.state = "running"
         env2 = Environment(events=locust.events, catch_exceptions=False)
         runner2 = env2.create_worker_runner("127.0.0.1", 5558)
         greenlet1 = gevent.spawn(stats_history, runner1)
         greenlet2 = gevent.spawn(stats_history, runner2)
-        gevent.sleep(1)
+        gevent.sleep(0.1)
         hs1 = runner1.stats.history
         hs2 = runner2.stats.history
         gevent.kill(greenlet1)

@@ -23,7 +23,7 @@ You can run locust without the web UI by using the ``--headless`` flag together 
     [2021-07-24 10:44:42,484] .../INFO/locust.runners: All users spawned: {"HelloWorldUser": 100} (100 total users)
     (...)
 
-Even in headless mode you can you can change the user count while the test is running. Press ``w`` to add 1 user or ``W`` to add 10. Press ``s`` to remove 1 or ``S`` to remove 10.
+Even in headless mode you can change the user count while the test is running. Press ``w`` to add 1 user or ``W`` to add 10. Press ``s`` to remove 1 or ``S`` to remove 10.
 
 Setting a time limit for the test
 ---------------------------------
@@ -64,7 +64,7 @@ Controlling the exit code of the Locust process
 -----------------------------------------------
 
 By default the locust process will give an exit code of 1 if there were any failed samples 
-(use the ``--exit-code-on-error``to change that behaviour).
+(use the ``--exit-code-on-error`` to change that behaviour).
 
 You can also manually control the exit code in your test scripts by setting the :py:attr:`process_exit_code <locust.env.Environment.process_exit_code>` of the 
 :py:class:`Environment <locust.env.Environment>` instance. This is particularly useful when running Locust as an automated/scheduled test, for example as part of a CI pipeline.

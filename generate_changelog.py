@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-import subprocess
 import os
+import subprocess
 import sys
 
 github_api_token = (
@@ -26,7 +26,7 @@ cmd = [
     "--header-label",
     "# Detailed changelog\nThe most important changes can also be found in [the documentation](https://docs.locust.io/en/latest/changelog.html).",
     "--since-tag",
-    "1.0.1",
+    "2.27.0",
     # "--since-commit", # these cause issues
     # "2020-07-01 00:00:00",
     "--future-release",

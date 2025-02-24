@@ -21,7 +21,17 @@ It implicitly registers an event handler for the :ref:`request <extending_locust
 
 You can configure exactly what is printed by specifying parameters to :py:func:`run_single_user <locust.debug.run_single_user>`.
 
-Make sure you have enabled gevent in your debugger settings. In VS Code's ``launch.json`` it looks like this:
+Make sure you have enabled gevent in your debugger settings. 
+
+Debugging Locust is quite easy with Vscode:
+
+- Place breakpoints
+- Select a python file or a scenario (ex: ```examples/basic.py``)
+- Check that the desired virtualenv is correctly detected (bottom right)
+- Open the action *Debug using launch.json*. You will have the choice between debugging the python file, the scenario with WebUI or in headless mode
+- It could be rerun with the F5 shortkey
+
+VS Code's ``launch.json`` looks like this:
 
 .. literalinclude:: ../.vscode/launch.json
     :language: json
@@ -47,7 +57,7 @@ Print HTTP communication
 
 Sometimes it can be hard to understand why an HTTP request fails in Locust when it works from a regular browser/other application. Here's how to examine the communication in detail:
 
-For ``HttpUser`` (`python-requests <http://python-requests.org>`_):
+For ``HttpUser`` (`python-requests <https://requests.readthedocs.io/>`_):
 
 .. code-block:: python
 
@@ -81,7 +91,7 @@ Example output (for FastHttpUser):
     REQUEST: http://example.com/
     GET / HTTP/1.1
     user-agent: python/gevent-http-client-1.5.3
-    accept-encoding: gzip, deflate
+    accept-encoding: gzip, deflate, br, zstd
     host: example.com
 
     RESPONSE: HTTP/1.1 200

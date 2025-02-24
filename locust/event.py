@@ -1,7 +1,14 @@
+from __future__ import annotations
+
 import logging
-from . import log
+import time
 import traceback
-from .exception import StopUser, RescheduleTask, RescheduleTaskImmediately, InterruptTaskSet
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import Any
+
+from . import log
+from .exception import InterruptTaskSet, RescheduleTask, RescheduleTaskImmediately, StopUser
 
 
 class EventHook:
@@ -46,6 +53,41 @@ class EventHook:
                 logging.error("Uncaught exception in event handler: \n%s", traceback.format_exc())
                 log.unhandled_greenlet_exception = True
 
+    @contextmanager
+    def measure(
+        self, request_type: str, name: str, response_length: int = 0, context=None
+    ) -> Generator[dict[str, Any]]:
+        """Convenience method for firing the event with automatically calculated response time and automatically marking the request as failed if an exception is raised (this is really only useful for the *request* event)
+
+        Example usage (in a task):
+
+        .. code-block:: python
+
+            with self.environment.events.request.measure("requestType", "requestName") as request_meta:
+                # do the stuff you want to measure
+
+        You can optionally add/overwrite entries in the request_meta dict and they will be passed to the request event.
+
+        Experimental.
+        """
+        start_time = time.time()
+        start_perf_counter = time.perf_counter()
+        request_meta = {
+            "request_type": request_type,
+            "name": name,
+            "response_length": response_length,
+            "context": context or {},
+            "exception": None,
+            "start_time": start_time,
+        }
+        try:
+            yield request_meta
+        except Exception as e:
+            request_meta["exception"] = e
+        finally:
+            request_meta["response_time"] = (time.perf_counter() - start_perf_counter) * 1000
+            self.fire(**request_meta)
+
 
 class DeprecatedEventHook(EventHook):
     def __init__(self, message):
@@ -60,7 +102,7 @@ class DeprecatedEventHook(EventHook):
 class Events:
     request: EventHook
     """
-    Fired when a request in completed, successful or unsuccessful. This event is typically used to report requests when writing custom clients for locust.
+    Fired when a request in completed.
 
     Event arguments:
 
@@ -71,6 +113,8 @@ class Events:
     :param response: Response object (e.g. a :py:class:`requests.Response`)
     :param context: :ref:`User/request context <request_context>`
     :param exception: Exception instance that was thrown. None if request was successful.
+
+    If you want to simplify a custom client, you can have Locust measure the time for you by using :meth:`measure() <locust.event.EventHook.measure>`
     """
 
     user_error: EventHook
@@ -120,11 +164,11 @@ class Events:
 
     spawning_complete: EventHook
     """
-    Fired when all simulated users has been spawned.
+    Fired when all simulated users has been spawned. The event is fired on master first, and then distributed to workers.
 
     Event arguments:
 
-    :param user_count: Number of users that were spawned
+    :param user_count: Number of users that were spawned (in total, not per-worker)
     """
 
     quitting: EventHook
@@ -191,12 +235,44 @@ class Events:
     Fired when the CPU usage exceeds runners.CPU_WARNING_THRESHOLD (90% by default)
     """
 
+    heartbeat_sent: EventHook
+    """
+    Fired when a heartbeat is sent by master to a worker.
+
+    Event arguments:
+
+    :param client_id: worker client id
+    :param timestamp: time in seconds since the epoch (float) when the event occured
+    """
+
+    heartbeat_received: EventHook
+    """
+    Fired when a heartbeat is received by a worker from master.
+
+    Event arguments:
+
+    :param client_id: worker client id
+    :param timestamp: time in seconds since the epoch (float) when the event occured
+    """
+
+    usage_monitor: EventHook
+    """
+    Fired every runners.CPU_MONITOR_INTERVAL (5.0 seconds by default) with information about
+    current CPU and memory usage.
+
+    Event arguments:
+
+    :param environment: locust environment
+    :param cpu_usage: current CPU usage in percent
+    :param memory_usage: current memory usage (RSS) in bytes
+    """
+
     def __init__(self):
-        # For backwarde compatibility use also values of class attributes
+        # For backward compatibility use also values of class attributes
         for name, value in vars(type(self)).items():
-            if value == EventHook:
-                setattr(self, name, value())
+            if value == "EventHook":
+                setattr(self, name, EventHook())
 
         for name, value in self.__annotations__.items():
-            if value == EventHook:
-                setattr(self, name, value())
+            if value == "EventHook":
+                setattr(self, name, EventHook())

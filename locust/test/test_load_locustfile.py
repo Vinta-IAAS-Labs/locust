@@ -1,12 +1,14 @@
+from locust import main
+from locust.argument_parser import parse_locustfile_option, parse_options
+from locust.main import create_environment
+from locust.user import HttpUser, TaskSet, User
+from locust.util.load_locustfile import is_user_class
+
+import filecmp
 import os
 import textwrap
 
-from locust import main
-from locust.argument_parser import parse_options
-from locust.main import create_environment
-from locust.user import HttpUser, User, TaskSet
-from locust.util.load_locustfile import is_user_class
-from .mock_locustfile import mock_locustfile, MOCK_LOCUSTFILE_CONTENT
+from .mock_locustfile import MOCK_LOCUSTFILE_CONTENT, mock_locustfile
 from .testcases import LocustTestCase
 from .util import temporary_file
 
@@ -37,25 +39,35 @@ class TestLoadLocustfile(LocustTestCase):
 
     def test_load_locust_file_from_absolute_path(self):
         with mock_locustfile() as mocked:
-            docstring, user_classes, shape_class = main.load_locustfile(mocked.file_path)
+            docstring, user_classes, shape_classes = main.load_locustfile(mocked.file_path)
             self.assertIn("UserSubclass", user_classes)
             self.assertNotIn("NotUserSubclass", user_classes)
             self.assertNotIn("LoadTestShape", user_classes)
-            self.assertIsNone(shape_class)
+            self.assertEqual(shape_classes, [])
 
     def test_load_locust_file_from_relative_path(self):
         with mock_locustfile() as mocked:
-            docstring, user_classes, shape_class = main.load_locustfile(
+            docstring, user_classes, shape_classes = main.load_locustfile(
                 os.path.join(os.path.relpath(mocked.directory, os.getcwd()), mocked.filename)
             )
 
+    def test_load_locust_file_called_locust_dot_py(self):
+        with mock_locustfile() as mocked:
+            new_filename = mocked.file_path.replace(mocked.filename, "locust.py")
+            os.rename(mocked.file_path, new_filename)
+            try:
+                docstring, user_classes, shape_classes = main.load_locustfile(new_filename)
+            finally:
+                # move it back, so it can be deleted
+                os.rename(new_filename, mocked.file_path)
+
     def test_load_locust_file_with_a_dot_in_filename(self):
         with mock_locustfile(filename_prefix="mocked.locust.file") as mocked:
-            docstring, user_classes, shape_class = main.load_locustfile(mocked.file_path)
+            docstring, user_classes, shape_classes = main.load_locustfile(mocked.file_path)
 
     def test_return_docstring_and_user_classes(self):
         with mock_locustfile() as mocked:
-            docstring, user_classes, shape_class = main.load_locustfile(mocked.file_path)
+            docstring, user_classes, shape_classes = main.load_locustfile(mocked.file_path)
             self.assertEqual("This is a mock locust file for unit testing", docstring)
             self.assertIn("UserSubclass", user_classes)
             self.assertNotIn("NotUserSubclass", user_classes)
@@ -70,11 +82,31 @@ class TestLoadLocustfile(LocustTestCase):
         """
         )
         with mock_locustfile(content=content) as mocked:
-            docstring, user_classes, shape_class = main.load_locustfile(mocked.file_path)
+            docstring, user_classes, shape_classes = main.load_locustfile(mocked.file_path)
             self.assertEqual("This is a mock locust file for unit testing", docstring)
             self.assertIn("UserSubclass", user_classes)
             self.assertNotIn("NotUserSubclass", user_classes)
-            self.assertEqual(shape_class.__class__.__name__, "LoadTestShape")
+            self.assertEqual(shape_classes[0].__class__.__name__, "LoadTestShape")
+
+    def test_with_multiple_shape_classes(self):
+        content = MOCK_LOCUSTFILE_CONTENT + textwrap.dedent(
+            """\
+        class LoadTestShape1(LoadTestShape):
+            def tick(self):
+                pass
+
+        class LoadTestShape2(LoadTestShape):
+            def tick(self):
+                pass
+        """
+        )
+        with mock_locustfile(content=content) as mocked:
+            docstring, user_classes, shape_classes = main.load_locustfile(mocked.file_path)
+            self.assertEqual("This is a mock locust file for unit testing", docstring)
+            self.assertIn("UserSubclass", user_classes)
+            self.assertNotIn("NotUserSubclass", user_classes)
+            self.assertEqual(shape_classes[0].__class__.__name__, "LoadTestShape1")
+            self.assertEqual(shape_classes[1].__class__.__name__, "LoadTestShape2")
 
     def test_with_abstract_shape_class(self):
         content = MOCK_LOCUSTFILE_CONTENT + textwrap.dedent(
@@ -92,10 +124,10 @@ class TestLoadLocustfile(LocustTestCase):
         )
 
         with mock_locustfile(content=content) as mocked:
-            _, user_classes, shape_class = main.load_locustfile(mocked.file_path)
+            _, user_classes, shape_classes = main.load_locustfile(mocked.file_path)
             self.assertNotIn("UserBaseLoadTestShape", user_classes)
             self.assertNotIn("UserLoadTestShape", user_classes)
-            self.assertEqual(shape_class.__class__.__name__, "UserLoadTestShape")
+            self.assertEqual(shape_classes[0].__class__.__name__, "UserLoadTestShape")
 
     def test_with_not_imported_shape_class(self):
         content = MOCK_LOCUSTFILE_CONTENT + textwrap.dedent(
@@ -107,9 +139,9 @@ class TestLoadLocustfile(LocustTestCase):
         )
 
         with mock_locustfile(content=content) as mocked:
-            _, user_classes, shape_class = main.load_locustfile(mocked.file_path)
+            _, user_classes, shape_classes = main.load_locustfile(mocked.file_path)
             self.assertNotIn("UserLoadTestShape", user_classes)
-            self.assertEqual(shape_class.__class__.__name__, "UserLoadTestShape")
+            self.assertEqual(shape_classes[0].__class__.__name__, "UserLoadTestShape")
 
     def test_create_environment(self):
         options = parse_options(
@@ -178,3 +210,18 @@ class TestLoadLocustfile(LocustTestCase):
                 ]
             )
             self.assertEqual("my_locust_file.py", options.locustfile)
+
+    def test_locustfile_from_url(self):
+        locustfiles = parse_locustfile_option(
+            args=[
+                "-f",
+                "https://raw.githubusercontent.com/locustio/locust/master/examples/basic.py",
+            ]
+        )
+        self.assertEqual(len(locustfiles), 1)
+        self.assertTrue(
+            filecmp.cmp(
+                locustfiles[0],
+                f"{os.getcwd()}/examples/basic.py",
+            )
+        )

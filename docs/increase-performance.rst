@@ -4,7 +4,7 @@
 Increase performance with a faster HTTP client
 ==============================================================
 
-Locust's default HTTP client uses `python-requests <http://www.python-requests.org/>`_. 
+Locust's default HTTP client uses `python-requests <https://requests.readthedocs.io/>`_.
 It provides a nice API that many python developers are familiar with, and is very well-maintained. But if you're planning to run tests with very high throughput and have limited hardware for running Locust, it is sometimes not efficient enough.
 
 Because of this, Locust also comes with :py:class:`FastHttpUser <locust.contrib.fasthttp.FastHttpUser>` which
@@ -17,7 +17,7 @@ In a *best case* scenario (doing small requests inside a ``while True``-loop) a 
 
 The relative improvement may be even bigger with bigger request payloads, but it may also be smaller if your test is doing CPU intensive things not related to requests.
 
-Of course, in reality you should run :ref:`one locust process per CPU core <running-distributed>`.
+Of course, in reality, you should run :ref:`one locust process per CPU core <running-distributed>`.
 
 .. note::
 
@@ -83,11 +83,24 @@ FastHttpUser provides a ``rest`` method for testing REST/JSON HTTP interfaces. I
                 elif resp.js["bar"] != 42:
                     resp.failure(f"'bar' had an unexpected value: {resp.js['bar']}")
 
-For a complete example, see `rest.py <https://github.com/locustio/locust/blob/master/examples/rest.py>`_. That also shows how you can use inheritance to provide behaviours specific to your REST API that are common to multiple requests/testplans.
+For a complete example, see `rest.py <https://github.com/locustio/locust/blob/master/examples/rest.py>`_. That also shows how you can use inheritance to provide behaviors specific to your REST API that are common to multiple requests/testplans.
 
 .. note::
 
     This feature is new and details of its interface/implementation may change in new versions of Locust.
+
+
+Connection Handling
+===================
+
+By default, a User will reuse the same TCP/HTTP connection (unless it breaks somehow). To more realistically simulate new browsers connecting to your application this connection can be manually closed.
+
+.. code-block:: python
+
+        @task
+        def t(self):
+            self.client.client.clientpool.close() # self.client.client is not a typo
+            self.client.get("/")                  # Here a new connection will be created
 
 
 API
@@ -98,7 +111,7 @@ FastHttpUser class
 --------------------
 
 .. autoclass:: locust.contrib.fasthttp.FastHttpUser
-    :members: network_timeout, connection_timeout, max_redirects, max_retries, insecure, concurrency, client_pool, rest, rest_
+    :members: network_timeout, connection_timeout, max_redirects, max_retries, insecure, proxy_host, proxy_port, concurrency, client_pool, rest, rest_
 
 
 FastHttpSession class

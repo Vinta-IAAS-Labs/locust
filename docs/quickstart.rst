@@ -16,47 +16,43 @@ A Locust test is essentially just a Python program making requests to the system
             self.client.get("/hello")
             self.client.get("/world")
 
-This user will make HTTP requests to ``/hello``, and then ``/world``, again and again. For a full explanation and a more realistic example see :ref:`writing-a-locustfile`.
+This user will make an HTTP request to ``/hello``, then to ``/world``, and then repeat. For a full explanation and a more realistic example see :ref:`writing-a-locustfile`.
 
-Change ``/hello`` and ``/world`` to some actual paths on the web site/service you want to test, put the code in a file named ``locustfile.py`` in your current directory and then run ``locust``:
+Change ``/hello`` and ``/world`` to some actual paths on the website/service you want to test, put the code in a file named ``locustfile.py`` in your current directory and then run ``locust``:
 
 .. code-block:: console
     :substitutions:
 
     $ locust
-    [2021-07-24 09:58:46,215] .../INFO/locust.main: Starting web interface at http://*:8089
+    [2021-07-24 09:58:46,215] .../INFO/locust.main: Starting web interface at http://0.0.0.0:8089
     [2021-07-24 09:58:46,285] .../INFO/locust.main: Starting Locust |version|
 
 Locust's web interface
-==============================
+======================
 
 Open http://localhost:8089
 
-.. image:: images/webui-splash-screenshot.png
+.. image:: images/webui-splash-light.png
 
 | Provide the host name of your server and try it out!
 
-The following screenshots show what it might look like when running this test using 40 concurrent users, with a ramp up rate of 0.5 users/s, against a server with somewhat poor performance.
+The following screenshots show what it might look like when running this test using 50 concurrent users, with a ramp up rate of 1 user/s
 
-.. image:: images/webui-running-statistics.png
+.. image:: images/webui-running-statistics-light.png
 
 | Under the *Charts* tab you'll find things like requests per second (RPS), response times and number of running users:
 
-.. image:: images/total_requests_per_second.png
-
-.. image:: images/response_times.png
-
-.. image:: images/number_of_users.png
+.. image:: images/bottlenecked-server-light.png
 
 .. note::
 
     Interpreting performance test results is quite complex (and mostly out of scope for this manual), but if your graphs start looking like this, the target service/system cannot handle the load and you have found a bottleneck.
 
-    When we get to around 9 users, response times start increasing so fast that even though Locust is still spawning more users, the number of requests per second is no longer increasing. The target service is "overloaded" or "saturated".
+    When we get to around 20 users, response times start increasing so fast that even though Locust is still spawning more users, the number of requests per second is no longer increasing. The target service is "overloaded" or "saturated".
 
     If your response times are *not* increasing then add even more users until you find the service's breaking point, or celebrate that your service is already performant enough for your expected load.
 
-    If you need some help digging into server side problems, or you're having trouble generating enough load to saturate your system, have a look at the `Locust FAQ  <https://github.com/locustio/locust/wiki/FAQ#increase-my-request-raterps>`_.
+    If you're having trouble generating enough load to saturate your system, take a look at :ref:`increaserr`.
 
 Direct command line usage / headless
 ====================================

@@ -7,10 +7,22 @@
 # All configuration values have a default value; values that are commented out
 # serve to show the default value.
 
+from locust.argument_parser import get_empty_argument_parser, setup_parser_arguments
+
 import os
 import subprocess
 
-from locust.argument_parser import get_empty_argument_parser, setup_parser_arguments
+# Add fixes for RTD deprecation
+# https://about.readthedocs.com/blog/2024/07/addons-by-default/
+
+# Define the canonical URL if you are using a custom domain on Read the Docs
+html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "")
+
+# Tell Jinja2 templates the build is running on Read the Docs
+if os.environ.get("READTHEDOCS", "") == "True":
+    if "html_context" not in globals():
+        html_context = {}
+    html_context["READTHEDOCS"] = True
 
 
 # Run command `locust --help` and store output in cli-help-output.txt which is included in the docs
@@ -83,6 +95,8 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx_search.extension",
+    "sphinx_rtd_theme",
+    "sphinxcontrib.googleanalytics",
 ]
 
 # autoclass options
@@ -142,24 +156,15 @@ exclude_dirnames = []
 
 html_show_sourcelink = False
 html_file_suffix = ".html"
-
-
-# on_rtd is whether we are on readthedocs.org, this line of code grabbed from docs.readthedocs.org
-on_rtd = os.environ.get("READTHEDOCS") == "True"
-
-if not on_rtd:  # only import and set the theme if we're building docs locally
-    import sphinx_rtd_theme
-
-    html_theme = "sphinx_rtd_theme"
-    html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
-
+html_theme = "sphinx_rtd_theme"
 
 # Custom CSS overrides
 html_static_path = ["_static"]
-html_context = {
-    "css_files": ["_static/theme-overrides.css", "_static/css/rtd_sphinx_search.min.css"],
-}
+html_css_files = ["_static/theme-overrides.css", "_static/css/rtd_sphinx_search.min.css"]
 
+# Google Analytics ID
+googleanalytics_id = "G-MCG99XYF9M"
+googleanalytics_enabled = True
 
 # HTML theme
 # html_theme = "haiku"

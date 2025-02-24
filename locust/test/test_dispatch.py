@@ -1,12 +1,14 @@
-import time
-import unittest
-from operator import attrgetter
-from typing import Dict, List, Tuple, Type
+from __future__ import annotations
 
 from locust import User
 from locust.dispatch import UsersDispatcher
 from locust.runners import WorkerNode
 from locust.test.util import clear_all_functools_lru_cache
+
+import math
+import time
+import unittest
+from operator import attrgetter
 
 _TOLERANCE = 0.025
 
@@ -841,6 +843,75 @@ class TestRampUpUsersFromZero(unittest.TestCase):
                 "hostname2_worker2": {"User1": 1, "User2": 0, "User3": 0},
             },
         )
+        ts = time.perf_counter()
+        self.assertRaises(StopIteration, lambda: next(users_dispatcher))
+        delta = time.perf_counter() - ts
+        self.assertTrue(0 <= delta <= _TOLERANCE, delta)
+
+    def test_implementation_of_dispatch_distribution_with_gcd(self):
+        class User1(User):
+            weight = 4
+
+        class User2(User):
+            weight = 5
+
+        user_classes = [User1, User2]
+        worker_node1 = WorkerNode("1")
+
+        sleep_time = 0.2  # Speed-up test
+
+        users_dispatcher = UsersDispatcher(worker_nodes=[worker_node1], user_classes=user_classes)
+        users_dispatcher.new_dispatch(target_user_count=9, spawn_rate=9)
+
+        users_dispatcher._wait_between_dispatch = sleep_time
+
+        ts = time.perf_counter()
+        self.assertDictEqual(
+            next(users_dispatcher),
+            {
+                "1": {"User1": 4, "User2": 5},
+            },
+        )
+        delta = time.perf_counter() - ts
+        self.assertTrue(0 <= delta <= _TOLERANCE, delta)
+
+        ts = time.perf_counter()
+        self.assertRaises(StopIteration, lambda: next(users_dispatcher))
+        delta = time.perf_counter() - ts
+        self.assertTrue(0 <= delta <= _TOLERANCE, delta)
+
+    def test_implementation_of_dispatch_distribution_with_gcd_float_weight(self):
+        class User1(User):
+            weight = 0.8
+
+        class User2(User):
+            weight = 1
+
+        normalized_weights_to_min_int = 5  # User1: 0.8 * 5 = 4; User2: 1 * 5 = 5
+
+        user_classes = [User1, User2]
+        worker_node1 = WorkerNode("1")
+
+        sleep_time = 0.2  # Speed-up test
+
+        users_dispatcher = UsersDispatcher(worker_nodes=[worker_node1], user_classes=user_classes)
+        users_dispatcher.new_dispatch(target_user_count=18, spawn_rate=18)
+
+        users_dispatcher._wait_between_dispatch = sleep_time
+
+        ts = time.perf_counter()
+        self.assertDictEqual(
+            next(users_dispatcher),
+            {
+                "1": {
+                    "User1": int(normalized_weights_to_min_int * User1.weight * 2),
+                    "User2": int(normalized_weights_to_min_int * User2.weight * 2),
+                },
+            },
+        )
+        delta = time.perf_counter() - ts
+        self.assertTrue(0 <= delta <= _TOLERANCE, delta)
+
         ts = time.perf_counter()
         self.assertRaises(StopIteration, lambda: next(users_dispatcher))
         delta = time.perf_counter() - ts
@@ -2097,9 +2168,7 @@ class TestLargeScale(unittest.TestCase):
                     dispatch_iteration_duration <= tol
                     for dispatch_iteration_duration in users_dispatcher.dispatch_iteration_durations
                 ),
-                "One or more dispatch took more than {:.0f}s to compute (max = {}ms)".format(
-                    tol * 1000, 1000 * max(users_dispatcher.dispatch_iteration_durations)
-                ),
+                f"One or more dispatch took more than {tol * 1000:.0f}s to compute (max = {1000 * max(users_dispatcher.dispatch_iteration_durations)}ms)",
             )
 
             self.assertEqual(_user_count(all_dispatched_users[-1]), target_user_count)
@@ -2111,9 +2180,7 @@ class TestLargeScale(unittest.TestCase):
                 self.assertLessEqual(
                     max(user_count_on_workers) - min(user_count_on_workers),
                     1,
-                    "One or more workers have too much users compared to the other workers when user count is {}".format(
-                        _user_count(dispatch_users)
-                    ),
+                    f"One or more workers have too much users compared to the other workers when user count is {_user_count(dispatch_users)}",
                 )
 
             for i, dispatch_users in enumerate(all_dispatched_users):
@@ -2132,9 +2199,7 @@ class TestLargeScale(unittest.TestCase):
                     self.assertLessEqual(
                         error_percent,
                         tol,
-                        "Distribution for user class {} is off by more than {}% when user count is {}".format(
-                            user_class, tol, _user_count(dispatch_users)
-                        ),
+                        f"Distribution for user class {user_class} is off by more than {tol}% when user count is {_user_count(dispatch_users)}",
                     )
 
     def test_ramp_down_from_100_000_to_0_users_with_50_user_classes_and_1000_workers_and_5000_spawn_rate(self):
@@ -2166,9 +2231,7 @@ class TestLargeScale(unittest.TestCase):
                     dispatch_iteration_duration <= tol
                     for dispatch_iteration_duration in users_dispatcher.dispatch_iteration_durations
                 ),
-                "One or more dispatch took more than {:.0f}ms to compute (max = {}ms)".format(
-                    tol * 1000, 1000 * max(users_dispatcher.dispatch_iteration_durations)
-                ),
+                f"One or more dispatch took more than {tol * 1000:.0f}ms to compute (max = {1000 * max(users_dispatcher.dispatch_iteration_durations)}ms)",
             )
 
             self.assertEqual(_user_count(all_dispatched_users[-1]), 0)
@@ -2180,9 +2243,7 @@ class TestLargeScale(unittest.TestCase):
                 self.assertLessEqual(
                     max(user_count_on_workers) - min(user_count_on_workers),
                     1,
-                    "One or more workers have too much users compared to the other workers when user count is {}".format(
-                        _user_count(dispatch_users)
-                    ),
+                    f"One or more workers have too much users compared to the other workers when user count is {_user_count(dispatch_users)}",
                 )
 
             for dispatch_users in all_dispatched_users[:-1]:
@@ -2197,9 +2258,7 @@ class TestLargeScale(unittest.TestCase):
                     self.assertLessEqual(
                         error_percent,
                         tol,
-                        "Distribution for user class {} is off by more than {}% when user count is {}".format(
-                            user_class, tol, _user_count(dispatch_users)
-                        ),
+                        f"Distribution for user class {user_class} is off by more than {tol}% when user count is {_user_count(dispatch_users)}",
                     )
 
 
@@ -3372,17 +3431,15 @@ class TestAddWorker(unittest.TestCase):
 
 class TestRampUpUsersFromZeroWithFixed(unittest.TestCase):
     class RampUpCase:
-        def __init__(self, fixed_counts: Tuple[int], weights: Tuple[int], target_user_count: int):
+        def __init__(self, fixed_counts: tuple[int], weights: tuple[int], target_user_count: int):
             self.fixed_counts = fixed_counts
             self.weights = weights
             self.target_user_count = target_user_count
 
         def __str__(self):
-            return "<RampUpCase fixed_counts={} weights={} target_user_count={}>".format(
-                self.fixed_counts, self.weights, self.target_user_count
-            )
+            return f"<RampUpCase fixed_counts={self.fixed_counts} weights={self.weights} target_user_count={self.target_user_count}>"
 
-    def case_handler(self, cases: List[RampUpCase], expected: List[Dict[str, int]], user_classes: List[Type[User]]):
+    def case_handler(self, cases: list[RampUpCase], expected: list[dict[str, int]], user_classes: list[type[User]]):
         self.assertEqual(len(cases), len(expected))
 
         for case_num in range(len(cases)):
@@ -3416,14 +3473,11 @@ class TestRampUpUsersFromZeroWithFixed(unittest.TestCase):
             self.assertDictEqual(iterations[-1]["1"], expected[case_num], msg=f"Wrong case {case}")
 
     def test_ramp_up_2_weigted_user_with_1_fixed_user(self):
-        class User1(User):
-            ...
+        class User1(User): ...
 
-        class User2(User):
-            ...
+        class User2(User): ...
 
-        class User3(User):
-            ...
+        class User3(User): ...
 
         self.case_handler(
             cases=[
@@ -3450,20 +3504,15 @@ class TestRampUpUsersFromZeroWithFixed(unittest.TestCase):
         )
 
     def test_ramp_up_various_count_weigted_and_fixed_users(self):
-        class User1(User):
-            ...
+        class User1(User): ...
 
-        class User2(User):
-            ...
+        class User2(User): ...
 
-        class User3(User):
-            ...
+        class User3(User): ...
 
-        class User4(User):
-            ...
+        class User4(User): ...
 
-        class User5(User):
-            ...
+        class User5(User): ...
 
         self.case_handler(
             cases=[
@@ -3490,20 +3539,15 @@ class TestRampUpUsersFromZeroWithFixed(unittest.TestCase):
         )
 
     def test_ramp_up_only_fixed_users(self):
-        class User1(User):
-            ...
+        class User1(User): ...
 
-        class User2(User):
-            ...
+        class User2(User): ...
 
-        class User3(User):
-            ...
+        class User3(User): ...
 
-        class User4(User):
-            ...
+        class User4(User): ...
 
-        class User5(User):
-            ...
+        class User5(User): ...
 
         self.case_handler(
             cases=[
@@ -3677,8 +3721,6 @@ class TestRampUpDifferentUsers(unittest.TestCase):
 
         worker_node1 = WorkerNode("1")
 
-        sleep_time = 0.2
-
         user_dispatcher = UsersDispatcher(worker_nodes=[worker_node1], user_classes=[User1, User2, User3])
 
         user_dispatcher.new_dispatch(target_user_count=3, spawn_rate=3)
@@ -3704,8 +3746,6 @@ class TestRampUpDifferentUsers(unittest.TestCase):
 
         worker_node1 = WorkerNode("1")
 
-        sleep_time = 0.2
-
         user_dispatcher = UsersDispatcher(worker_nodes=[worker_node1], user_classes=[User1, User2, User3])
 
         user_dispatcher.new_dispatch(target_user_count=10, spawn_rate=10, user_classes=[User2])
@@ -3722,8 +3762,6 @@ class TestRampUpDifferentUsers(unittest.TestCase):
             weight = 1
 
         worker_node1 = WorkerNode("1")
-
-        sleep_time = 0.2
 
         user_dispatcher = UsersDispatcher(worker_nodes=[worker_node1], user_classes=[User1, User2, User3])
 
@@ -3744,8 +3782,6 @@ class TestRampUpDifferentUsers(unittest.TestCase):
             weight = 1
 
         worker_node1 = WorkerNode("1")
-
-        sleep_time = 0.2
 
         user_dispatcher = UsersDispatcher(worker_nodes=[worker_node1], user_classes=[User1, User2, User3])
 
@@ -3768,8 +3804,6 @@ class TestRampUpDifferentUsers(unittest.TestCase):
         worker_node1 = WorkerNode("1")
         worker_node2 = WorkerNode("2")
         worker_node3 = WorkerNode("3")
-
-        sleep_time = 0.2
 
         user_dispatcher = UsersDispatcher(
             worker_nodes=[worker_node1, worker_node2, worker_node3], user_classes=[User1, User2, User3]
@@ -3828,8 +3862,6 @@ class TestRampUpDifferentUsers(unittest.TestCase):
         worker_node1 = WorkerNode("1")
         worker_node2 = WorkerNode("2")
         worker_node3 = WorkerNode("3")
-
-        sleep_time = 0.2
 
         user_dispatcher = UsersDispatcher(
             worker_nodes=[worker_node1, worker_node2, worker_node3], user_classes=[User1, User2, User3]
@@ -3893,7 +3925,6 @@ class TestRampUpDifferentUsers(unittest.TestCase):
 
         user_dispatcher.new_dispatch(target_user_count=21, spawn_rate=21, user_classes=[User1, User2, User3])
         dispatched_users = next(user_dispatcher)
-        print(dispatched_users)
         self.assertDictEqual(
             dispatched_users,
             {
@@ -4092,14 +4123,48 @@ class TestRampUpDifferentUsers(unittest.TestCase):
         self.assertEqual(_user_count_on_worker(dispatched_users, worker_nodes[2].id), 6)
 
 
-def _aggregate_dispatched_users(d: Dict[str, Dict[str, int]]) -> Dict[str, int]:
+class TestFloatWeithts(unittest.TestCase):
+    def test_float_weights(self):
+        """Final distribution should be {"User1": 3, "User2": 3, "User3": 3}"""
+
+        for ratio in (1, 1.0, 10, 2.5, 0.3, 1 / 23, math.e, math.pi):
+
+            class User1(User):
+                weight = 1 * ratio
+
+            class User2(User):
+                weight = 2 * ratio
+
+            class User3(User):
+                weight = 3 * ratio
+
+            worker_node1 = WorkerNode("1")
+            worker_node2 = WorkerNode("2")
+            worker_node3 = WorkerNode("3")
+
+            sleep_time = 0  # Speed-up test
+
+            users_dispatcher = UsersDispatcher(
+                worker_nodes=[worker_node1, worker_node2, worker_node3], user_classes=[User1, User2, User3]
+            )
+            users_dispatcher.new_dispatch(target_user_count=9, spawn_rate=0.5)
+            users_dispatcher._wait_between_dispatch = sleep_time
+
+            if ratio == 1:
+                reference = list(users_dispatcher)
+            else:
+                for x in reference:
+                    self.assertDictEqual(x, next(users_dispatcher))
+
+
+def _aggregate_dispatched_users(d: dict[str, dict[str, int]]) -> dict[str, int]:
     user_classes = list(next(iter(d.values())).keys())
     return {u: sum(d[u] for d in d.values()) for u in user_classes}
 
 
-def _user_count(d: Dict[str, Dict[str, int]]) -> int:
-    return sum(map(sum, map(dict.values, d.values())))  # type: ignore
+def _user_count(d: dict[str, dict[str, int]]) -> int:
+    return sum(map(sum, map(dict.values, d.values())))
 
 
-def _user_count_on_worker(d: Dict[str, Dict[str, int]], worker_node_id: str) -> int:
+def _user_count_on_worker(d: dict[str, dict[str, int]], worker_node_id: str) -> int:
     return sum(d[worker_node_id].values())

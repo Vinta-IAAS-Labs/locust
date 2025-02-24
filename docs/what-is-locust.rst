@@ -2,11 +2,11 @@
 What is Locust?
 ===============================
 
-Locust is an easy to use, scriptable and scalable performance testing tool.
+Locust is an open source performance/load testing tool for HTTP and other protocols. Its developer-friendly approach lets you define your tests in regular Python code.
 
-You define the behaviour of your users in regular Python code, instead of being stuck in a UI or restrictive domain specific language.
+Locust tests can be run from command line or using its web-based UI. Throughput, response times and errors can be viewed in real time and/or exported for later analysis.
 
-This makes Locust infinitely expandable and very developer friendly.
+You can import regular Python libraries into your tests, and with Locust's pluggable architecture it is infinitely expandable. Unlike when using most other tools, your test design will never be limited by a GUI or domain-specific language.
 
 To start using Locust, go to :ref:`installation`
 
@@ -21,7 +21,7 @@ Features
     
 * **Write test scenarios in plain old Python**
 
- If you want your users to loop, perform some conditional behaviour or do some calculations, you just use the regular programming constructs provided by Python.
+ If you want your users to loop, perform some conditional behavior or do some calculations, you just use the regular programming constructs provided by Python.
  Locust runs every user inside its own greenlet (a lightweight process/coroutine). This enables you to write your tests like normal (blocking) Python code instead of having to use callbacks or some other mechanism.
  Because your scenarios are "just python" you can use your regular IDE, and version control your tests as regular code (as opposed to some other tools that use XML or binary formats)
 
@@ -37,35 +37,31 @@ Features
 
 * **Can test any system**
 
- Even though Locust primarily works with web sites/services, it can be used to test almost any system or protocol. Just :ref:`write a client <testing-other-systems>` 
+ Even though Locust primarily works with websites/services, it can be used to test almost any system or protocol. Just :ref:`write a client <testing-other-systems>` 
  for what you want to test, or `explore some created by the community <https://github.com/SvenskaSpel/locust-plugins#users>`_.
 
 * **Hackable**
 
- Locust is small and very flexible and we intend to keep it that way. If you want to `send reporting data to that database & graphing system you like <https://github.com/SvenskaSpel/locust-plugins/blob/master/locust_plugins/listeners.py>`_, wrap calls to a REST API to handle the particulars of your system or run a :ref:`totally custom load pattern <custom-load-shape>`, there is nothing stopping you!
+ Locust is small and very flexible and we intend to keep it that way. If you want to `send reporting data to that database & graphing system you like <https://github.com/SvenskaSpel/locust-plugins/tree/master/locust_plugins/dashboards>`_, wrap calls to a REST API to handle the particulars of your system or run a :ref:`totally custom load pattern <custom-load-shape>`, there is nothing stopping you!
 
 Name & background
 =================
 
-Locust was born out of a frustration with existing solutions. No existing load testing tool was well equipped to generate realistic 
+Locust was born out of a frustration with existing solutions. No existing load testing tool was well-equipped to generate realistic 
 load against a dynamic website where most pages had different content for different users. Existing tools used clunky interfaces or 
 verbose configuration files to declare the tests. In Locust we took a different approach. Instead of configuration formats or UIs 
-you'd get a python framework that would let you define the behaviour of your users using Python code. 
+you'd get a python framework that would let you define the behavior of your users using Python code. 
 
-`Locust <http://en.wikipedia.org/wiki/Locust>`_ takes its name from the grasshopper species, known for their swarming behaviour. 
-
-Previous versions of Locust used terminology borrowed from nature (swarming, hatching, attacking etc), but now employs more industry standard naming.
+Locust takes its name from the `grasshopper species <https://en.wikipedia.org/wiki/Locust>`_, known for their swarming behavior. 
 
 :ref:`history`
 
 Authors
 =======
 
-- `Jonatan Heyman <http://heyman.info>`_ (`@jonatanheyman <https://twitter.com/jonatanheyman>`_ on Twitter)
-- Lars Holmberg (`@cyberw <https://github.com/cyberw>`_ on Github)
-- Carl Byström (`@cgbystrom <https://twitter.com/cgbystrom>`_ on Twitter)
-- Joakim Hamrén (`@Jahaaja <https://twitter.com/Jahaaja>`_ on Twitter)
-- Hugo Heyman (`@hugoheyman <https://twitter.com/hugoheyman>`_ on Twitter)
+- Jonatan Heyman (`@heyman <https://github.com/heyman>`_)
+- Lars Holmberg (`@cyberw <https://github.com/cyberw>`_)
+- Andrew Baldwin (`@andrewbaldwin44 <https://github.com/andrewbaldwin44>`_)
 
 Many thanks to our other great `contributors <https://github.com/locustio/locust/graphs/contributors>`_!
 
@@ -74,4 +70,3 @@ License
 =======
 
 Open source licensed under the MIT license (see LICENSE file for details).
-

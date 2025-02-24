@@ -24,7 +24,8 @@ Locust is configured mainly through command line arguments.
 Environment Variables
 =====================
 
-Options can also be set through through environment variables. They are typically the same as the command line argument but capitalized and prefixed with ``LOCUST_``:
+Options can also be set through environment variables. They are typically the same as the command line argument
+but capitalized and prefixed with ``LOCUST_``:
 
 On Linux/macOS:
 
@@ -44,38 +45,61 @@ On Windows:
 Configuration File
 ==================
 
-Options can also be set in a configuration file in the `config file <https://github.com/bw2/ConfigArgParse#config-file-syntax>`_
-format. 
+Options can also be set in a configuration file in the
+`config or TOML file format <https://github.com/bw2/ConfigArgParse#config-file-syntax>`_.
 
-Locust will look for ``~/.locust.conf`` and ``./locust.conf`` by default, and you can specify an 
-additional file using the ``--config`` flag.
+Locust will look for ``~/.locust.conf``, ``./locust.conf`` and ``./pyproject.toml`` by default.
+You can specify an additional file using the ``--config`` flag.
 
-Example:
+.. code-block:: console
 
-.. code-block::
+    $ locust --config custom_config.conf
 
-    # master.conf in current directory
+Here's an example:
+
+locust.conf
+--------------
+
+.. code-block:: ini
+
     locustfile = locust_files/my_locust_file.py
     headless = true
     master = true
     expect-workers = 5
-    host = http://target-system
+    host = https://target-system
     users = 100
     spawn-rate = 10
     run-time = 10m
-    
+    tags = [Critical, Normal]
 
-.. code-block:: console
+Have a look later in this page for `All available configuration options`_
 
-    $ locust --config=master.conf
+pyproject.toml
+--------------
+
+When using a TOML file, configuration options should be defined within the ``[tool.locust]`` section.
+
+.. code-block:: toml
+
+    [tool.locust]
+    locustfile = "locust_files/my_locust_file.py"
+    headless = true
+    master = true
+    expect-workers = 5
+    host = "https://target-system"
+    users = 100
+    spawn-rate = 10
+    run-time = "10m"
+    tags = ["Critical", "Normal"]
 
 .. note::
 
-    Configuration values are read (overridden) in the following order:
-    
+    Configuration values are read (and overridden) in the following order:
+
     .. code-block:: console
-        
-        ~/locust.conf -> ./locust.conf -> (file specified using --conf) -> env vars -> cmd args
+
+       ~/.locust.conf -> ./locust.conf -> ./pyproject.toml -> (file specified using --conf) -> env vars -> cmd args
+
 
 All available configuration options
 ===================================
@@ -92,8 +116,7 @@ See :ref:`running-without-web-ui`
 Using multiple Locustfiles at once
 ==================================
 
-The ``-f/--locustfile`` option accepts a single directory of locustfiles as an option. Locust will recursively
-search the directory for ``*.py`` files, ignoring files named ``locust.py`` or those that start with "_".
+``-f/--locustfile`` accepts multiple, comma-separated locustfiles.
 
 Example:
 
@@ -106,18 +129,7 @@ With the following file structure:
     │   ├── locustfile2.py
     │   └── more_files/
     │       ├── locustfile3.py
-    │       ├── locust.py
     │       ├── _ignoreme.py
-
-.. code-block:: console
-
-    $ locust -f locustfiles
-
-Locust will use ``locustfile1.py``, ``locustfile2.py`` & ``more_files/locustfile3.py``
-
-Additionally, ``-f/--locustfile`` accepts multiple, comma-separated locustfiles.
-
-Example:
 
 .. code-block:: console
 
@@ -125,17 +137,37 @@ Example:
 
 Locust will use ``locustfile1.py``, ``locustfile2.py`` & ``more_files/locustfile3.py``
 
-.. _class-picker:
-
-Running Locust with User class UI picker
-========================================
-
-You can select which Shape class and which User classes to run in the WebUI when running locust with the ``--class-picker`` flag.
-No selection uses all of the available User classes.
+Additionally, ``-f/--locustfile`` accepts directories as an option. Locust will recursively
+search specified directories for ``*.py`` files, ignoring files that start with "_".
 
 Example:
 
-With the following file structure:
+.. code-block:: console
+
+    $ locust -f locustfiles
+
+Locust will use ``locustfile1.py``, ``locustfile2.py`` & ``more_files/locustfile3.py``
+
+
+
+You can also use ``-f/--locustfile`` for web urls. This will download the file and use it as any normal locustfile.
+
+Example:
+
+.. code-block:: console
+
+    $ locust -f https://raw.githubusercontent.com/locustio/locust/master/examples/basic.py
+
+
+.. _class-picker:
+
+Pick User classes, Shapes and tasks from the UI
+===============================================
+
+You can select which Shape class and which User classes to run in the WebUI when running locust with the ``--class-picker`` flag.
+No selection uses all the available User classes.
+
+For example, with a file structure like this:
 
 .. code-block::
 
@@ -146,7 +178,6 @@ With the following file structure:
     │   ├── locustfile2.py
     │   └── more_files/
     │       ├── locustfile3.py
-    │       ├── locust.py
     │       ├── _ignoreme.py
     │   └── shape_classes/
     │       ├── DoubleWaveShape.py
@@ -160,9 +191,48 @@ With the following file structure:
 The Web UI will display:
 
 .. image:: images/userclass_picker_example.png
-    :width: 200
 
-|
+The class picker additionally allows for disabling individual User tasks, changing the weight or fixed count, and configuring the host.
+
+It is even possible to add custom attributes that you wish to be configurable for each User. Simply add a ``json`` classmethod
+to your user:
+
+.. code-block:: python
+
+    class Example(HttpUser):
+        @task
+        def example_task(self):
+            self.client.get(f"/example/{self.some_custom_arg}")
+
+        @classmethod
+        def json(self):
+            return {
+                "host": self.host,
+                "some_custom_arg": "example"
+            }
+
+Configure Users from command line
+=================================
+
+You can update User class attributes from the command line too, using the ``--config-users`` argument:
+
+.. code-block:: console
+
+    $ locust --config-users '{"user_class_name": "Example", "fixed_count": 1, "some_custom_attribute": false}'
+
+To configure multiple users you pass multiple arguments to ``--config-users``, or use a JSON Array. You can also pass a path to a JSON file.
+
+.. code-block:: console
+
+    $ locust --config-users '{"user_class_name": "Example", "fixed_count": 1}' '{"user_class_name": "ExampleTwo", "fixed_count": 2}'
+    $ locust --config-users '[{"user_class_name": "Example", "fixed_count": 1}, {"user_class_name": "ExampleTwo", "fixed_count": 2}]'
+    $ locust --config-users my_user_config.json
+
+When using this way to configure your users, you can set any attribute.
+
+.. note::
+
+    ``--config-users`` is a somewhat experimental feature and the json format may change even between minor Locust revisions.
 
 Custom arguments
 ================
@@ -185,22 +255,37 @@ It can be done directly in Locust file or extracted to separate file for common 
 
 The list of statistics parameters that can be modified is:
 
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| Parameter name                          | Purpose                                                                          | Default value                                                        |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| STATS_NAME_WIDTH                        | Width of column for request name in console output                               | terminal size or 80                                                  |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| STATS_TYPE_WIDTH                        | Width of column for request type in console output                               | 8                                                                    |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| CSV_STATS_INTERVAL_SEC                  | Interval for how frequently the CSV file is written if this option is configured | 1                                                                    |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| CONSOLE_STATS_INTERVAL_SEC              | Interval for how frequently results are written to console / chart UI            | 2                                                                    |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| HISTORY_STATS_INTERVAL_SEC              | Interval for how frequently results are written to history                       | 5                                                                    |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| CURRENT_RESPONSE_TIME_PERCENTILE_WINDOW | Window size/resolution - in seconds - when calculating the current response      | 10                                                                   |
+|                                         | time percentile                                                                  |                                                                      |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| PERCENTILES_TO_REPORT                   | List of response time percentiles to be calculated & reported                    | [0.50, 0.66, 0.75, 0.80, 0.90, 0.95, 0.98, 0.99, 0.999, 0.9999, 1.0] |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| PERCENTILES_TO_STATISTICS               | List of response time percentiles in the screen of statistics for UI             | [0.95, 0.99]                                                         |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+| PERCENTILES_TO_CHART                    | List of response time percentiles in the screen of chart for UI                  | [0.5, 0.95]                                                          |
++-----------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------+
+
+Customization of additional static variables
+============================================
+
+This table lists the constants that are set within locust and may be overridden.
+
 +-------------------------------------------+--------------------------------------------------------------------------------------+
 | Parameter name                            | Purpose                                                                              |
 +-------------------------------------------+--------------------------------------------------------------------------------------+
-| STATS_NAME_WIDTH                          | Width of column for request name in console output                                   |
+| locust.runners.WORKER_LOG_REPORT_INTERVAL | Interval for how frequently worker logs are reported to master. Can be disabled      |
+|                                           | by setting to a negative number                                                      |
 +-------------------------------------------+--------------------------------------------------------------------------------------+
-| STATS_TYPE_WIDTH                          | Width of column for request type in console output                                   |
-+-------------------------------------------+--------------------------------------------------------------------------------------+
-| CSV_STATS_INTERVAL_SEC                    | Interval for how frequently the CSV file is written if this option is configured     |
-+-------------------------------------------+--------------------------------------------------------------------------------------+
-| CONSOLE_STATS_INTERVAL_SEC                | Interval for how frequently results are written to console                           |
-+-------------------------------------------+--------------------------------------------------------------------------------------+
-| CURRENT_RESPONSE_TIME_PERCENTILE_WINDOW   | Window size/resolution - in seconds - when calculating the current response          |
-|                                           | time percentile                                                                      |
-+-------------------------------------------+--------------------------------------------------------------------------------------+
-| PERCENTILES_TO_REPORT                     | The list of response time percentiles to be calculated & reported                    |
-+-------------------------------------------+--------------------------------------------------------------------------------------+
-| PERCENTILES_TO_CHART                      | The list of response time percentiles for response time chart                        |
-+-------------------------------------------+--------------------------------------------------------------------------------------+
-

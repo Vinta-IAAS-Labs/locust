@@ -1,15 +1,17 @@
 from locust import (
     constant,
 )
+from locust.dispatch import UsersDispatcher
 from locust.env import Environment, LoadTestShape
 from locust.user import (
     User,
     task,
 )
 from locust.user.task import TaskSet
-from .testcases import LocustTestCase
+
 from .fake_module1_for_env_test import MyUserWithSameName as MyUserWithSameName1
 from .fake_module2_for_env_test import MyUserWithSameName as MyUserWithSameName2
+from .testcases import LocustTestCase
 
 
 class TestEnvironment(LocustTestCase):
@@ -34,7 +36,7 @@ class TestEnvironment(LocustTestCase):
 
     def test_user_classes_with_same_name_is_error(self):
         with self.assertRaises(ValueError) as e:
-            environment = Environment(user_classes=[MyUserWithSameName1, MyUserWithSameName2])
+            Environment(user_classes=[MyUserWithSameName1, MyUserWithSameName2])
 
         self.assertEqual(
             e.exception.args[0],
@@ -184,7 +186,7 @@ class TestEnvironment(LocustTestCase):
                 pass
 
         with self.assertRaises(ValueError) as e:
-            environment = Environment(user_classes=[MyUser1, MyUser2])
+            Environment(user_classes=[MyUser1, MyUser2])
 
         self.assertEqual(
             e.exception.args[0],
@@ -199,3 +201,83 @@ class TestEnvironment(LocustTestCase):
             ValueError, r"instance of LoadTestShape or subclass LoadTestShape", msg="exception message is mismatching"
         ):
             Environment(user_classes=[MyUserWithSameName1], shape_class=SubLoadTestShape)
+
+    def test_dispatcher_class_attribute(self):
+        environment = Environment(user_classes=[MyUserWithSameName1])
+
+        self.assertEqual(environment.dispatcher_class, UsersDispatcher)
+
+        class MyUsersDispatcher(UsersDispatcher):
+            pass
+
+        environment = Environment(user_classes=[MyUserWithSameName1], dispatcher_class=MyUsersDispatcher)
+
+        self.assertEqual(environment.dispatcher_class, MyUsersDispatcher)
+
+    def test_update_user_class(self):
+        class MyUser1(User):
+            @task
+            def my_task(self):
+                pass
+
+            @task
+            def my_task_2(self):
+                pass
+
+        class MyUser2(User):
+            @task
+            def my_task(self):
+                pass
+
+        environment = Environment(
+            user_classes=[MyUser1, MyUser2],
+            available_user_classes={"User1": MyUser1, "User2": MyUser2},
+            available_user_tasks={"User1": MyUser1.tasks, "User2": MyUser2.tasks},
+        )
+
+        environment.update_user_class({"user_class_name": "User1", "host": "http://localhost", "tasks": ["my_task_2"]})
+
+        self.assertEqual(
+            environment.available_user_classes["User1"].json(),
+            {"host": "http://localhost", "tasks": ["my_task_2"], "fixed_count": 0, "weight": 1},
+        )
+
+    def test_distributed_update_user_class(self):
+        class MyUser1(User):
+            @task
+            def my_task(self):
+                pass
+
+            @task
+            def my_task_2(self):
+                pass
+
+        class MyUser2(User):
+            @task
+            def my_task(self):
+                pass
+
+        master_env = Environment(
+            user_classes=[MyUser1, MyUser2],
+            available_user_classes={"User1": MyUser1, "User2": MyUser2},
+            available_user_tasks={"User1": MyUser1.tasks, "User2": MyUser2.tasks},
+        )
+        master = master_env.create_master_runner("*", 0)
+
+        worker_env = Environment(
+            user_classes=[MyUser1, MyUser2],
+            available_user_classes={"User1": MyUser1, "User2": MyUser2},
+            available_user_tasks={"User1": MyUser1.tasks, "User2": MyUser2.tasks},
+        )
+        worker_env.create_worker_runner("127.0.0.1", master.server.port)
+
+        master_env.update_user_class({"user_class_name": "User1", "host": "http://localhost", "tasks": ["my_task_2"]})
+
+        self.assertEqual(
+            master_env.available_user_classes["User1"].json(),
+            {"host": "http://localhost", "tasks": ["my_task_2"], "fixed_count": 0, "weight": 1},
+        )
+        self.assertEqual(
+            worker_env.available_user_classes["User1"].json(),
+            {"host": "http://localhost", "tasks": ["my_task_2"], "fixed_count": 0, "weight": 1},
+        )
